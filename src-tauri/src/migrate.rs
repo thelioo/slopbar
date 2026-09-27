@@ -31,12 +31,15 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
 
 /// Only an installed SlopBar replaces Usage Bar: removes its launch-at-login entry (ours is
 /// written by the autostart plugin from the same setting) and runs its uninstaller silently.
+/// Installed as an update of Usage Bar, the installer skips the Start menu shortcut (and Usage
+/// Bar's own goes with its uninstaller), so SlopBar adds one when it's missing.
 #[cfg(windows)]
 fn retire_legacy_install() {
     use std::os::windows::process::CommandExt;
     use windows_sys::Win32::System::Registry::{RegDeleteKeyValueW, HKEY_CURRENT_USER};
     const LEGACY_NAME: &str = "Usage Bar";
     const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     let Some(local) = dirs::data_local_dir() else { return };
     let installed = std::env::current_exe()
@@ -46,6 +49,21 @@ fn retire_legacy_install() {
     if !installed {
         return;
     }
+    if let (Some(programs), Ok(exe)) = (dirs::data_dir(), std::env::current_exe()) {
+        let link = programs.join(r"Microsoft\Windows\Start Menu\Programs\SlopBar.lnk");
+        if !link.exists() {
+            let script = format!(
+                "$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{}'); $s.TargetPath = '{}'; $s.Save()",
+                link.display().to_string().replace('\'', "''"),
+                exe.display().to_string().replace('\'', "''"),
+            );
+            let _ = std::process::Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn();
+        }
+    }
+
     let wide = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
     let run = wide(r"Software\Microsoft\Windows\CurrentVersion\Run");
     unsafe {
