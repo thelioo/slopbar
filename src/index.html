@@ -2,33 +2,25 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Usage Bar</title>
+  <title>SlopBar</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div id="stage">
-  <div class="piece arm"></div>
-  <div class="piece ear"></div><div class="piece ear"></div>
-  <div id="island">
-   <div id="clip">
-    <div id="compact"><span class="dim" data-i18n="loading"></span></div>
-    <div id="compact-v"></div>
-    <div id="details">
-      <header>
-        <span class="title" data-i18n="title"></span>
-        <span id="updated" class="dim"></span>
-        <button id="open-settings" class="icon-btn" data-i18n-title="settings">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-        </button>
-        <button id="refresh" class="icon-btn" data-i18n-title="refresh">
-          <svg viewBox="0 0 16 16" width="13" height="13"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-      </header>
-      <div id="accounts"></div>
-      <div class="grabber" data-i18n-title="dragHint"></div>
-    </div>
-   </div>
-  </div>
+  <!-- The taskbar widget ("dock") -->
+  <div id="widget"><div id="compact"><span class="dim" data-i18n="loading"></span></div></div>
+  <!-- The flyout above it ("panel") -->
+  <div id="details">
+    <header>
+      <span class="title" data-i18n="title"></span>
+      <span id="updated" class="dim"></span>
+      <button id="refresh" class="icon-btn" data-i18n-title="refresh">
+        <svg viewBox="0 0 16 16" width="16" height="16"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button id="open-settings" class="icon-btn" data-i18n-title="settings">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+    </header>
+    <div id="accounts"></div>
   </div>
   <script type="module" src="main.js"></script>
 </body>

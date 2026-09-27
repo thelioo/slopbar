@@ -8,50 +8,9 @@ use crate::accounts::Provider;
 use serde::{Deserialize, Serialize};
 
 /// Must match `identifier` in tauri.conf.json.
-const IDENTIFIER: &str = "dev.thelio.usagebar";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DisplayMode {
-    /// Dynamic Island hanging from the top edge of one monitor.
-    Island,
-    /// A widget laid over the taskbar, next to the notification area.
-    Taskbar,
-    /// Tray icon only; clicking it opens a panel above the taskbar.
-    Tray,
-}
-
-/// Where the island sits on its monitor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Anchor {
-    /// Hanging from the top edge, like a notch.
-    Top,
-    Left,
-    Right,
-}
-
-impl Anchor {
-    pub const ALL: [Anchor; 3] = [Anchor::Top, Anchor::Left, Anchor::Right];
-}
-
-/// How providers are told apart in the collapsed island and the taskbar widget.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CompactStyle {
-    /// "Claude 30%".
-    Names,
-    /// Just the usage ring with a small provider mark inside; no name, no percentage.
-    #[serde(alias = "icons")]
-    Minimal,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ExpandOn {
-    Hover,
-    Click,
-}
+const IDENTIFIER: &str = "dev.thelio.slopbar";
+/// The data folder of releases published as Usage Bar, migrated on first run.
+pub const LEGACY_IDENTIFIER: &str = "dev.thelio.usagebar";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -81,6 +40,24 @@ impl Default for Rule {
     }
 }
 
+/// Which Windows notifications to show.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Notifications {
+    /// A limit at 75% and 90%, and reached.
+    pub usage: bool,
+    /// A limit that was reached is back, and new usage-limit resets.
+    pub resets: bool,
+    /// Automatic account switches.
+    pub switches: bool,
+}
+
+impl Default for Notifications {
+    fn default() -> Self {
+        Self { usage: true, resets: true, switches: true }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Balancer {
@@ -100,13 +77,6 @@ impl Balancer {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
-    pub mode: DisplayMode,
-    /// Monitor name as reported by the OS; `None` follows the primary monitor.
-    pub monitor: Option<String>,
-    #[serde(deserialize_with = "lenient_anchor")]
-    pub anchor: Anchor,
-    pub expand_on: ExpandOn,
-    pub compact_style: CompactStyle,
     pub refresh_minutes: u32,
     pub providers: Providers,
     /// "auto" follows the system language.
@@ -119,16 +89,12 @@ pub struct Settings {
     /// Display names for accounts, keyed by `provider:slot id`.
     pub aliases: HashMap<String, String>,
     pub balancer: Balancer,
+    pub notifications: Notifications,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            mode: DisplayMode::Island,
-            monitor: None,
-            anchor: Anchor::Top,
-            expand_on: ExpandOn::Hover,
-            compact_style: CompactStyle::Names,
             refresh_minutes: 5,
             providers: Providers::default(),
             language: "auto".into(),
@@ -137,21 +103,20 @@ impl Default for Settings {
             last_version: None,
             aliases: HashMap::new(),
             balancer: Balancer::default(),
+            notifications: Notifications::default(),
         }
     }
 }
 
-/// Same place as Tauri's app config dir, but usable before the app is built,
-/// so settings are ready before any window can ask for them.
-/// Anchors that no longer exist (older versions had corners and a bottom) fall back to the top.
-fn lenient_anchor<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Anchor, D::Error> {
-    let value = serde_json::Value::deserialize(d)?;
-    Ok(serde_json::from_value(value).unwrap_or(Anchor::Top))
-}
-
-/// The app's data folder (settings and the account vault).
+/// The app's data folder (settings and the account vault): the same place as Tauri's app
+/// config dir, but usable before the app is built, so settings are ready before any window
+/// can ask for them.
 pub fn app_dir() -> Option<PathBuf> {
     dirs::config_dir().map(|d| d.join(IDENTIFIER))
+}
+
+pub fn legacy_app_dir() -> Option<PathBuf> {
+    dirs::config_dir().map(|d| d.join(LEGACY_IDENTIFIER))
 }
 
 fn path() -> Option<PathBuf> {

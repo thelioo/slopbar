@@ -1,13 +1,13 @@
 <!doctype html>
-<html lang="en" data-usage-bar-host>
+<html lang="en" data-slopbar-host>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Usage Bar — Claude Code & Codex limits for Windows</title>
-  <meta name="description" content="A Dynamic Island for Windows that shows your Claude Code and Codex plan limits. WSL support, multiple accounts and automatic switching. Free and open source." />
-  <meta property="og:title" content="Usage Bar" />
-  <meta property="og:description" content="Your Claude Code and Codex plan limits, one glance away. A Dynamic Island for Windows." />
-  <meta property="og:image" content="design/demo.gif" />
+  <title>SlopBar — Claude Code & Codex limits for Windows</title>
+  <meta name="description" content="SlopBar shows your Claude Code and Codex plan limits in the Windows taskbar, next to the clock. WSL support, multiple accounts and automatic switching. Free and open source." />
+  <meta property="og:title" content="SlopBar" />
+  <meta property="og:description" content="Your Claude Code and Codex plan limits, one glance away. Right in the Windows taskbar." />
+  <meta property="og:image" content="icon.png" />
   <link rel="icon" href="icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -16,12 +16,12 @@
 </head>
 <body>
   <header class="nav">
-    <a class="brand" href="#top"><img src="icon.png" alt="" width="28" height="28" />Usage Bar</a>
+    <a class="brand" href="#top"><img src="icon.png" alt="" width="28" height="28" />SlopBar</a>
     <nav>
       <a href="#features">Features</a>
       <a href="#accounts">Accounts</a>
       <a href="#privacy">Privacy</a>
-      <a class="gh" href="https://github.com/thelioo/usage-bar" aria-label="GitHub">
+      <a class="gh" href="https://github.com/thelioo/slopbar" aria-label="GitHub">
         <svg viewBox="0 0 16 16" width="18" height="18"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
       </a>
     </nav>
@@ -32,34 +32,41 @@
       <div class="copy">
         <span class="eyebrow">For Claude Code & Codex on Windows</span>
         <h1>Your plan limits,<br />one glance away.</h1>
-        <p class="lead">A Dynamic Island for Windows that shows how much of your Claude Code and Codex plans you have left — across Windows and WSL, for every account you use.</p>
+        <p class="lead">SlopBar lives in your taskbar, next to the clock, and shows how much of your Claude Code and Codex plans you have left — across Windows and WSL, for every account you use.</p>
         <div class="cta">
-          <a class="button primary" href="https://github.com/thelioo/usage-bar/releases/latest">
+          <a class="button primary" href="https://github.com/thelioo/slopbar/releases/latest">
             <svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M1 3.5 8.2 2.5v7H1zM9.1 2.4 19 1v8.5H9.1zM1 10.5h7.2v7L1 16.5zM9.1 10.5H19V19l-9.9-1.4z"/></svg>
             Download for Windows
           </a>
-          <a class="button" href="https://github.com/thelioo/usage-bar">View on GitHub</a>
+          <a class="button" href="https://github.com/thelioo/slopbar">View on GitHub</a>
         </div>
         <p class="fine">Free and open source · Windows 10 & 11 · No sign-in</p>
       </div>
 
-      <!-- A working Usage Bar: the app's own UI on a mock screen (see site.js). -->
+      <!-- A working SlopBar: the app's own UI on a mock screen (see site.js). -->
       <div class="demo">
         <div class="stage" id="stage">
           <div class="screen" id="screen">
-            <iframe id="island" class="frame main" src="design/demo/island.html?label=main" title="Usage Bar island" allowtransparency="true"></iframe>
-            <iframe id="panel" class="frame panel" src="design/demo/island.html?label=panel" title="Usage Bar panel" allowtransparency="true"></iframe>
-            <div class="slots" id="slots"></div>
-            <div class="hint" id="hint">Hover the island</div>
-            <iframe id="dock" class="frame dock" src="design/demo/island.html?label=dock" title="Usage Bar taskbar widget" allowtransparency="true"></iframe>
+            <button class="shortcut" id="shortcut" hidden><img src="icon.png" alt="" />SlopBar</button>
+            <div class="hint" id="hint">Click the widget</div>
+            <div class="flyout" id="flyout">
+              <iframe id="panel" class="frame" src="design/demo/app.html?label=panel" title="SlopBar flyout" allowtransparency="true"></iframe>
+            </div>
+            <div class="menu" id="menu" hidden>
+              <button data-action="refresh"></button>
+              <button data-action="settings"></button>
+              <hr />
+              <button data-action="quit"></button>
+            </div>
             <div class="taskbar">
-              <i></i><i></i><i></i><i></i>
-              <button id="tray-icon" class="tray-icon" title="Usage Bar"><img src="icon.png" alt="Usage Bar" /></button>
-              <span>9:41</span>
+              <div class="apps"><i></i><i></i><i></i><i></i></div>
+              <iframe id="dock" class="frame" src="design/demo/app.html?label=dock" title="SlopBar taskbar widget" allowtransparency="true"></iframe>
+              <div class="tray"><span class="icons"><i></i><i></i><i></i></span><span class="clock">9:41 AM<br />9/27/2026</span></div>
             </div>
           </div>
         </div>
-        <p class="try">Try it: hover to open, switch accounts, or <a href="#" id="open-settings-link">open Settings</a> to move it to a side, the taskbar or the tray.</p>
+        <p class="try">Try it: click the widget, switch accounts, right-click it, or make the taskbar
+          <button id="theme-toggle" class="link"></button>.</p>
       </div>
     </section>
 
@@ -77,9 +84,9 @@
           <p>Finds your accounts in your Windows profile and in every WSL distro.</p>
         </article>
         <article>
-          <div class="icon"><svg viewBox="0 0 24 24"><path d="M8 3h8v3a3 3 0 0 1-3 3h-2a3 3 0 0 1-3-3zM3 18h18M6 21h12"/></svg></div>
-          <h3>Island, taskbar or tray</h3>
-          <p>A notch at the top, a bar on a side, a widget by the clock or a tray icon. Drag it where you like.</p>
+          <div class="icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 16h18M14 18h4"/></svg></div>
+          <h3>Right in your taskbar</h3>
+          <p>A small widget next to the clock. Click it for every account, right-click for more. It follows the taskbar's light or dark theme and steps aside for fullscreen apps.</p>
         </article>
         <article>
           <div class="icon"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c.7-3.4 3.2-5 6-5s5.3 1.6 6 5M16 5a3 3 0 0 1 0 6M18 14c1.5.7 2.5 2.2 3 5"/></svg></div>
@@ -99,20 +106,18 @@
       </div>
     </section>
 
-    <section class="showcase">
-      <figure>
-        <img src="design/demo.gif" alt="The island opening, then dragged to a side and into the taskbar" loading="lazy" />
-        <figcaption><strong>Put it anywhere.</strong> Drag the island to the top, a side of any monitor, or dock it in the taskbar. Drop slots light up as you go.</figcaption>
-      </figure>
-    </section>
 
     <section class="split" id="accounts">
       <div class="copy">
         <h2>More accounts, fewer walls</h2>
-        <p>Add accounts with the CLI's own sign-in, in an isolated folder, so your current login is never touched. Switch with a click from the island.</p>
-        <p>Turn on <strong>Switch automatically</strong> and Usage Bar moves to the account with the most headroom when the active one reaches your threshold. The official CLI keeps doing all the work; nothing is proxied.</p>
+        <p>Add accounts with the CLI's own sign-in, in an isolated folder, so your current login is never touched. Switch with a click from the flyout.</p>
+        <p>Turn on <strong>Switch automatically</strong> and SlopBar moves to the account with the most headroom when the active one reaches your threshold. The official CLI keeps doing all the work; nothing is proxied.</p>
       </div>
-      <img src="design/accounts.gif" alt="Switching accounts from the island, then switching back automatically at the limit" loading="lazy" />
+      <div class="wall">
+        <div class="flyout">
+          <iframe id="accounts-frame" class="frame" src="design/demo/app.html?label=accounts" title="SlopBar flyout with several accounts" allowtransparency="true"></iframe>
+        </div>
+      </div>
     </section>
 
     <section class="privacy" id="privacy">
@@ -136,26 +141,27 @@
     <section class="install">
       <h2>Get started in a minute</h2>
       <ol>
-        <li><span>1</span><div><strong>Download</strong> the installer from the <a href="https://github.com/thelioo/usage-bar/releases/latest">latest release</a>.</div></li>
-        <li><span>2</span><div><strong>Run it.</strong> The island appears at the top of your screen.</div></li>
+        <li><span>1</span><div><strong>Download</strong> the installer from the <a href="https://github.com/thelioo/slopbar/releases/latest">latest release</a>.</div></li>
+        <li><span>2</span><div><strong>Run it.</strong> SlopBar appears in your taskbar, next to the clock.</div></li>
         <li><span>3</span><div><strong>That's it.</strong> If you use Claude Code or Codex, your usage is already there.</div></li>
       </ol>
-      <a class="button primary" href="https://github.com/thelioo/usage-bar/releases/latest">Download for Windows</a>
+      <a class="button primary" href="https://github.com/thelioo/slopbar/releases/latest">Download for Windows</a>
     </section>
   </main>
 
   <footer>
-    <span><img src="icon.png" alt="" width="18" height="18" /> Usage Bar · GPL-3.0</span>
+    <span><img src="icon.png" alt="" width="18" height="18" /> SlopBar · GPL-3.0</span>
     <span>Not affiliated with Anthropic or OpenAI. Claude and Codex are trademarks of their owners.</span>
   </footer>
 
   <div class="modal" id="settings-modal" hidden>
     <div class="window">
-      <div class="titlebar"><span>Usage Bar · Settings</span><button id="settings-close" aria-label="Close">✕</button></div>
-      <iframe id="settings-frame" src="design/demo/settings.html" title="Usage Bar settings"></iframe>
+      <div class="titlebar"><span>SlopBar · Settings</span><button id="settings-close" aria-label="Close">✕</button></div>
+      <iframe id="settings-frame" src="design/demo/settings.html?label=settings" title="SlopBar settings"></iframe>
     </div>
   </div>
 
+  <script src="design/demo/backend.js"></script>
   <script src="site.js"></script>
 </body>
 </html>

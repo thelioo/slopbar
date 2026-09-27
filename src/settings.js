@@ -1,3 +1,4 @@
+import { MARK } from "./marks.js";
 import { t, translateDom, setLanguage, setSystemLocale, LANGUAGES, resetsIn, resetText } from "./i18n.js";
 
 const { invoke } = window.__TAURI__.core;
@@ -7,7 +8,7 @@ const REFRESH_OPTIONS = [1, 5, 15, 30];
 const PROVIDERS = [["claude", "Claude"], ["codex", "Codex"]];
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
-const color = (p) => (p >= 90 ? "var(--bad)" : p >= 70 ? "var(--warn)" : "var(--accent)");
+const color = (p) => (p >= 90 ? "var(--bad)" : p >= 70 ? "var(--warn)" : "var(--ok)");
 
 let settings;
 let snapshot = { accounts: [] };
@@ -19,39 +20,8 @@ function showPage(page) {
   document.querySelectorAll(".nav").forEach((b) => b.classList.toggle("active", b.dataset.page === page));
   document.querySelectorAll(".page").forEach((p) => p.classList.toggle("active", p.id === `page-${page}`));
   try { localStorage.setItem("settings-page", page); } catch {}
-  requestAnimationFrame(placeThumbs);
 }
 document.querySelectorAll(".nav").forEach((b) => b.addEventListener("click", () => showPage(b.dataset.page)));
-
-// ---------------------------------------------------------------------------------------------
-// Segmented controls with a sliding thumb
-
-function placeThumbs() {
-  document.querySelectorAll(".segmented").forEach((seg) => {
-    const active = seg.querySelector("button.active");
-    const thumb = seg.querySelector(".thumb");
-    if (!active || !thumb || !seg.offsetParent) return;
-    thumb.style.width = `${active.offsetWidth}px`;
-    thumb.style.transform = `translateX(${active.offsetLeft}px)`;
-  });
-}
-
-function markSelected() {
-  document.querySelectorAll(".segmented, .picker").forEach((group) => {
-    const value = String(settings[group.dataset.key]);
-    group.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.value === value));
-  });
-  placeThumbs();
-}
-
-document.querySelectorAll(".segmented, .picker").forEach((group) => {
-  group.addEventListener("click", (e) => {
-    const value = e.target.closest("button")?.value;
-    if (!value) return;
-    const key = group.dataset.key;
-    update({ [key]: key === "refresh_minutes" ? Number(value) : value });
-  });
-});
 
 // ---------------------------------------------------------------------------------------------
 // Accounts
@@ -93,7 +63,10 @@ function accountRow(p, a) {
         </small>
       </div>
       ${meter}
-      ${a.active ? "" : `<button class="btn use" data-use="${p}" data-id="${esc(a.id)}">${t("use")}</button>`}
+      ${a.active
+        // Holds the button's place so every row's meter lines up.
+        ? `<span class="btn use" aria-hidden="true" style="visibility:hidden">${t("use")}</span>`
+        : `<button class="btn use" data-use="${p}" data-id="${esc(a.id)}">${t("use")}</button>`}
       <button class="remove" data-remove="${p}" data-id="${esc(a.id)}" ${a.active ? "disabled" : ""} title="${t("remove")}">
         <svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>
       </button>
@@ -129,7 +102,7 @@ function renderAccounts() {
     return `
       <div class="provider">
         <div class="provider-head">
-          <span class="mark ${p}">C</span><h3>${name}</h3>
+          <span class="logo ${p}">${MARK[p]}</span><h3>${name}</h3>
           <button class="btn" data-add="${p}"><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg>${t("addAccount")}</button>
         </div>
         <div class="group">
@@ -217,25 +190,13 @@ listen("account-added", () => { $("add-hint").hidden = true; });
 // ---------------------------------------------------------------------------------------------
 // Everything else
 
-const displayNumber = (name, i) => /(\d+)\s*$/.exec(name ?? "")?.[1] ?? String(i + 1);
-
 async function render() {
   setLanguage(settings.language);
   translateDom();
-  document.title = `Usage Bar · ${t("settings")}`;
+  document.title = `SlopBar · ${t("settings")}`;
 
-  $("refresh").querySelectorAll("button").forEach((b) => b.remove());
-  $("refresh").insertAdjacentHTML("beforeend",
-    REFRESH_OPTIONS.map((n) => `<button value="${n}">${t("minutes", { n })}</button>`).join(""));
-
-  document.querySelector(".island-only").classList.toggle("disabled", settings.mode !== "island");
-
-  const monitors = await invoke("list_monitors");
-  $("monitor").innerHTML = `<option value="">${t("monitorPrimary")}</option>` + monitors.map((m, i) => {
-    const label = `${t("display", { n: displayNumber(m.name, i) })} · ${m.width}×${m.height}${m.primary ? ` (${t("primary")})` : ""}`;
-    return `<option value="${esc(m.name)}">${esc(label)}</option>`;
-  }).join("");
-  $("monitor").value = settings.monitor ?? "";
+  $("refresh").innerHTML = REFRESH_OPTIONS.map((n) => `<option value="${n}">${t("minutes", { n })}</option>`).join("");
+  $("refresh").value = String(settings.refresh_minutes);
 
   $("language").innerHTML = `<option value="auto">${t("langAuto")}</option>` +
     Object.entries(LANGUAGES).map(([code, name]) => `<option value="${code}">${name}</option>`).join("");
@@ -245,11 +206,11 @@ async function render() {
   $("codex").checked = settings.providers.codex;
   $("startup").checked = settings.launch_at_login;
   $("auto-update").checked = settings.auto_update;
+  for (const kind of ["usage", "resets", "switches"]) $(`notify-${kind}`).checked = settings.notifications[kind];
   const version = await invoke("app_version");
   $("version").textContent = /^\d/.test(version) ? `v${version}` : version;
   $("version-label").textContent = t("versionN", { v: version });
   if (!$("check-updates").disabled) $("check-updates").textContent = latest ? t("installUpdate") : t("checkUpdates");
-  markSelected();
   renderAccounts();
 }
 
@@ -259,12 +220,16 @@ async function update(patch) {
   await invoke("save_settings", { settings });
 }
 
-$("monitor").addEventListener("change", (e) => update({ monitor: e.target.value || null }));
 $("language").addEventListener("change", (e) => update({ language: e.target.value }));
+$("refresh").addEventListener("change", (e) => update({ refresh_minutes: Number(e.target.value) }));
 $("claude").addEventListener("change", (e) => update({ providers: { ...settings.providers, claude: e.target.checked } }));
 $("codex").addEventListener("change", (e) => update({ providers: { ...settings.providers, codex: e.target.checked } }));
 $("startup").addEventListener("change", (e) => update({ launch_at_login: e.target.checked }));
 $("auto-update").addEventListener("change", (e) => update({ auto_update: e.target.checked }));
+for (const kind of ["usage", "resets", "switches"]) {
+  $(`notify-${kind}`).addEventListener("change", (e) => update({ notifications: { ...settings.notifications, [kind]: e.target.checked } }));
+}
+document.querySelectorAll("[data-mark]").forEach((el) => (el.innerHTML = MARK[el.dataset.mark]));
 
 // Updates: checking shows the result inline; when one is available the button installs it.
 let latest = null;
@@ -278,6 +243,7 @@ function showUpdateState(state) {
     : state === "installing" ? t("updating", { v: latest })
     : state ? String(state) : "";
   button.textContent = state === "available" ? t("installUpdate") : t("checkUpdates");
+  button.classList.toggle("accent", state === "available");
   button.disabled = state === "checking" || state === "installing";
 }
 $("check-updates").addEventListener("click", async () => {
@@ -296,15 +262,28 @@ $("check-updates").addEventListener("click", async () => {
   }
 });
 
-// Monitors may be plugged in while the window is hidden.
-window.addEventListener("focus", () => settings && render());
-window.addEventListener("resize", placeThumbs);
 listen("settings-changed", (e) => { settings = e.payload; render(); });
+
+// The window draws its own title bar (see settings.html).
+$("close").addEventListener("click", () => window.__TAURI__.window.getCurrentWindow().close());
+window.addEventListener("blur", () => document.body.classList.add("inactive"));
+window.addEventListener("focus", () => document.body.classList.remove("inactive"));
+invoke("has_mica").then((mica) => document.documentElement.classList.toggle("mica", mica), () => {});
+
+/** The system accent color, as WinUI tints it for light and dark backgrounds. */
+async function applyAccent() {
+  const colors = await invoke("accent_colors").catch(() => null);
+  if (!colors) return;
+  document.documentElement.style.setProperty("--accent-light", colors[0]);
+  document.documentElement.style.setProperty("--accent-dark", colors[1]);
+}
+applyAccent();
+window.addEventListener("focus", applyAccent);
 
 try { setSystemLocale(await invoke("system_locale")); } catch {}
 settings = await invoke("get_settings");
 snapshot = await invoke("get_usage");
 await render();
-let page = "display";
+let page = "accounts";
 try { page = localStorage.getItem("settings-page") || page; } catch {}
 showPage(page);

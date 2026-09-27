@@ -80,59 +80,94 @@ h3 { font-size: 17px; font-weight: 600; }
 .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
 .fine { margin-top: 18px; font-size: 13.5px; color: var(--faint); }
 
-/* A working Usage Bar on a mock screen (640x420, scaled to fit) */
+/* A working SlopBar on a mock screen (680x500, scaled to fit) */
 .demo { min-width: 0; }
-.stage { --s: 1; width: 100%; aspect-ratio: 640 / 420; position: relative; overflow: hidden; border-radius: 20px; }
-.screen {
-  position: absolute; left: 0; top: 0; width: 640px; height: 420px; transform: scale(var(--s)); transform-origin: top left;
-  border-radius: 20px; overflow: hidden; border: 1px solid var(--line);
+.stage { --s: 1; width: 100%; aspect-ratio: 680 / 500; position: relative; overflow: hidden; border-radius: 20px; }
+.screen, .wall {
   background:
     radial-gradient(60% 80% at 18% 28%, #4a57b8 0%, transparent 60%),
     radial-gradient(50% 70% at 88% 64%, #c2507a 0%, transparent 60%),
     radial-gradient(70% 90% at 58% 115%, #f09a48 0%, transparent 55%),
     #1b1c35;
+}
+.screen {
+  position: absolute; left: 0; top: 0; width: 680px; height: 500px; transform: scale(var(--s)); transform-origin: top left;
+  border-radius: 20px; overflow: hidden; border: 1px solid var(--line);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
 }
-/* Frames must match the app pages' color scheme, or the browser paints them opaque. */
-.frame { position: absolute; border: 0; background: transparent; color-scheme: normal; }
-.frame.main { width: 600px; height: 700px; pointer-events: none; }
-.frame.panel {
-  width: 380px; right: 8px; opacity: 0; transform: translateY(10px) scale(0.98); pointer-events: none;
-  transition: opacity 0.2s, transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+/*
+ * The taskbar, the flyouts and the context menu follow the demo's taskbar theme, as in Windows.
+ * Frames must match the app page's color scheme, or the browser paints them opaque.
+ */
+:root {
+  --tb: rgba(238, 238, 238, 0.85); --tb-ink: #1b1b1b;
+  --fly: rgba(249, 249, 249, 0.86); --fly-stroke: rgba(0, 0, 0, 0.0578); --fly-ink: rgba(0, 0, 0, 0.896);
 }
-.frame.panel.open { opacity: 1; transform: none; pointer-events: auto; }
+:root[data-taskbar="dark"] {
+  --tb: rgba(28, 28, 28, 0.85); --tb-ink: #fff;
+  --fly: rgba(44, 44, 44, 0.86); --fly-stroke: rgba(0, 0, 0, 0.2); --fly-ink: #fff;
+}
+.frame { display: block; border: 0; background: transparent; color-scheme: light; }
+:root[data-taskbar="dark"] .frame { color-scheme: dark; }
+.frame[hidden] { display: none; }
+
 .taskbar {
-  position: absolute; left: 0; right: 0; bottom: 0; height: 34px; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
-  background: rgba(243, 243, 243, 0.82); backdrop-filter: blur(20px);
+  position: absolute; left: 0; right: 0; bottom: 0; height: 40px; display: flex; justify-content: flex-end;
+  background: var(--tb); color: var(--tb-ink); backdrop-filter: blur(20px) saturate(1.4);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
-.taskbar i { width: 20px; height: 20px; border-radius: 5px; background: #2b7cd3; }
-.taskbar i:nth-child(2) { background: #f2b01e; }
-.taskbar i:nth-child(3) { background: #1e9e5a; }
-.taskbar i:nth-child(4) { background: #7a5af5; }
-.taskbar span { position: absolute; right: 14px; font-size: 11px; color: #1b1b1b; }
-.frame.dock { z-index: 3; }
-.stage.dragging, .stage.dragging * { cursor: none !important; }
-/* Drop slots while dragging (same outlines as the app's overlay) */
-.slots { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
-.slots svg { position: absolute; overflow: visible; opacity: 0; transform: scale(0.85); transition: opacity 0.3s cubic-bezier(0.2, 0, 0, 1), transform 0.45s cubic-bezier(0.32, 0.72, 0, 1), filter 0.25s; }
-.slots path { fill: rgba(20, 20, 22, 0.16); stroke: rgba(255, 255, 255, 0.55); stroke-width: 1; transition: fill 0.2s, stroke 0.2s; }
-.slots.on svg { opacity: 1; transform: none; }
-.slots svg.active { transform: scale(1.06); filter: drop-shadow(0 0 10px rgba(48, 209, 88, 0.45)); }
-.slots svg.active path { fill: rgba(48, 209, 88, 0.14); stroke: rgba(48, 209, 88, 0.95); stroke-width: 1.5; }
-.tray-icon {
-  position: absolute; right: 52px; top: 5px; width: 24px; height: 24px; display: grid; place-items: center;
-  border: 0; border-radius: 5px; background: transparent; cursor: pointer;
+.taskbar .apps { position: absolute; left: 12px; top: 8px; display: flex; gap: 6px; }
+.taskbar .apps i { width: 24px; height: 24px; border-radius: 5px; background: #2b7cd3; }
+.taskbar .apps i:nth-child(2) { background: #f2b01e; }
+.taskbar .apps i:nth-child(3) { background: #1e9e5a; }
+.taskbar .apps i:nth-child(4) { background: #7a5af5; }
+#dock { width: 150px; height: 40px; }
+.tray { display: flex; align-items: center; gap: 14px; padding: 0 12px 0 8px; font-size: 10.5px; line-height: 1.3; }
+.tray .icons { display: flex; gap: 9px; }
+.tray .icons i { width: 12px; height: 12px; border-radius: 3px; background: currentColor; opacity: 0.6; }
+.tray .clock { text-align: right; }
+
+.flyout {
+  width: 380px; border-radius: 8px; overflow: hidden;
+  background: var(--fly); border: 1px solid var(--fly-stroke); backdrop-filter: blur(30px) saturate(1.5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
-.tray-icon:hover { background: rgba(0, 0, 0, 0.06); }
-.tray-icon img { width: 16px; height: 16px; border-radius: 4px; }
+.flyout iframe { width: 100%; height: 320px; }
+.stage .flyout {
+  position: absolute; overflow-y: auto; scrollbar-width: thin; overscroll-behavior: contain;
+  visibility: hidden; opacity: 0; transition: opacity 0.1s, visibility 0s 0.1s;
+}
+.stage .flyout.open { visibility: visible; opacity: 1; transition: opacity 0.1s; }
+
+/* The widget's context menu (Windows 11 style) */
+.menu {
+  position: absolute; z-index: 2; min-width: 150px; padding: 4px; border-radius: 8px;
+  background: var(--fly); border: 1px solid var(--fly-stroke); color: var(--fly-ink); backdrop-filter: blur(30px) saturate(1.5);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.26); font: 12px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+}
+.menu[hidden] { display: none; }
+.menu button { display: block; width: 100%; height: 28px; padding: 0 12px; border: 0; border-radius: 4px; text-align: left; background: transparent; color: inherit; font: inherit; }
+.menu button:hover { background: color-mix(in srgb, currentColor 7%, transparent); }
+.menu hr { border: 0; border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent); margin: 4px -4px; }
+
+/* Desktop shortcut, shown after quitting from the menu */
+.shortcut {
+  position: absolute; left: 20px; top: 20px; display: grid; justify-items: center; gap: 4px; width: 72px; padding: 6px 4px;
+  border: 1px solid transparent; border-radius: 4px; background: transparent; color: #fff; font: 11px system-ui, sans-serif;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); cursor: pointer;
+}
+.shortcut[hidden] { display: none; }
+.shortcut:hover { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.2); }
+.shortcut img { width: 36px; height: 36px; border-radius: 8px; }
+
 .hint {
-  position: absolute; left: 50%; top: 58px; transform: translateX(-50%); pointer-events: none;
-  font-size: 12.5px; color: rgba(255, 255, 255, 0.75); transition: opacity 0.4s;
+  position: absolute; right: 150px; bottom: 50px; pointer-events: none;
+  font-size: 12.5px; color: rgba(255, 255, 255, 0.8); transition: opacity 0.4s;
 }
-.hint::before { content: "↑ "; }
+.hint::after { content: " ↓"; }
 .stage.touched .hint { opacity: 0; }
 .try { margin-top: 14px; font-size: 13.5px; color: var(--faint); text-align: center; }
-.try a { color: var(--accent); }
+.try .link { padding: 0; border: 0; background: none; font: inherit; color: var(--accent); text-decoration: underline; cursor: pointer; }
 
 /* Settings window modal */
 .modal { --s: 1; position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(6px); }
@@ -162,15 +197,14 @@ h3 { font-size: 17px; font-weight: 600; }
 }
 .icon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
-/* Showcases */
-.showcase figure { border-radius: 24px; overflow: hidden; border: 1px solid var(--line); background: var(--card); }
-.showcase img { width: 100%; }
-.showcase figcaption { padding: 20px 26px; color: var(--dim); }
-.showcase strong { color: var(--text); }
+/* Accounts */
 .split { display: grid; grid-template-columns: 1fr 1.1fr; gap: 56px; align-items: center; }
 .split p { color: var(--dim); margin-top: 16px; font-size: 17px; }
 .split strong { color: var(--text); }
-.split img { border-radius: 22px; border: 1px solid var(--line); }
+/* The same flyout, always open, on a slice of the wallpaper */
+.wall { display: grid; place-items: center; padding: 40px 16px; border-radius: 22px; border: 1px solid var(--line); min-width: 0; }
+.wall .flyout { max-width: 100%; }
+.wall .flyout iframe { height: 420px; }
 
 /* Privacy */
 .privacy { text-align: center; }

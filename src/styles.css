@@ -1,25 +1,46 @@
-@property --ear { syntax: "<length>"; inherits: true; initial-value: 8px; }
-@property --radius { syntax: "<length>"; inherits: true; initial-value: 12px; }
+/*
+ * Colors are Windows 11's (WinUI/Fluent theme resources), so the widget and the flyout match
+ * the shell around them. Both follow the taskbar's theme ("Windows mode"), set by main.js.
+ */
 :root {
-  --island: #000;
-  --text: #f5f5f7;
-  --dim: #8e8e93;
-  --track: #2c2c2e;
-  --ok: #30d158;
-  --warn: #ff9f0a;
-  --bad: #ff453a;
-  --ear: 8px;
-  --radius: 12px;
-  /* Springs are generated in main.js; these are fallbacks. */
-  --open: cubic-bezier(0.32, 0.72, 0, 1);
-  --open-dur: 0.5s;
-  --close: cubic-bezier(0.32, 0.72, 0, 1);
-  --close-dur: 0.4s;
-  --content: cubic-bezier(0.32, 0.72, 0, 1);
-  --content-dur: 0.5s;
-  --spring: var(--close);
-  --spring-dur: var(--close-dur);
-  --fade: cubic-bezier(0.2, 0, 0, 1);
+  --text: #fff;                                 /* TextFillColorPrimary */
+  --text-2: rgba(255, 255, 255, 0.786);         /* TextFillColorSecondary */
+  --text-3: rgba(255, 255, 255, 0.545);         /* TextFillColorTertiary */
+  --subtle-hover: rgba(255, 255, 255, 0.0605);  /* SubtleFillColorSecondary */
+  --subtle-press: rgba(255, 255, 255, 0.0419);  /* SubtleFillColorTertiary */
+  --control: rgba(255, 255, 255, 0.0605);       /* ControlFillColorDefault */
+  --control-hover: rgba(255, 255, 255, 0.0837); /* ControlFillColorSecondary */
+  --control-press: rgba(255, 255, 255, 0.0326); /* ControlFillColorTertiary */
+  --control-stroke: rgba(255, 255, 255, 0.0698);/* ControlStrokeColorDefault */
+  --card: rgba(255, 255, 255, 0.0512);          /* CardBackgroundFillColorDefault */
+  --card-stroke: rgba(0, 0, 0, 0.1);            /* CardStrokeColorDefault */
+  --track: rgba(255, 255, 255, 0.1);
+  --ok: #6ccb5f;                                /* SystemFillColorSuccess */
+  --warn: #fce100;                              /* SystemFillColorCaution */
+  --bad: #ff99a4;                               /* SystemFillColorCritical */
+  /* AcrylicBackgroundFillColorDefault: tint and luminosity layers over the blur. */
+  --flyout: rgba(44, 44, 44, 0.96);
+  --ease: cubic-bezier(0, 0, 0, 1);             /* ControlFastOutSlowInKeySpline */
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --text: rgba(0, 0, 0, 0.896);
+  --text-2: rgba(0, 0, 0, 0.62);
+  --text-3: rgba(0, 0, 0, 0.446);
+  --subtle-hover: rgba(0, 0, 0, 0.0373);
+  --subtle-press: rgba(0, 0, 0, 0.0241);
+  --control: rgba(255, 255, 255, 0.7);
+  --control-hover: rgba(249, 249, 249, 0.5);
+  --control-press: rgba(249, 249, 249, 0.3);
+  --control-stroke: rgba(0, 0, 0, 0.0578);
+  --card: rgba(255, 255, 255, 0.7);
+  --card-stroke: rgba(0, 0, 0, 0.0578);
+  --track: rgba(0, 0, 0, 0.1);
+  --ok: #0f7b0f;
+  --warn: #9d5d00;
+  --bad: #c42b1c;
+  --flyout: rgba(249, 249, 249, 0.88);
+  color-scheme: light;
 }
 * { box-sizing: border-box; margin: 0; }
 html, body { background: transparent; overflow: hidden; height: 100%; }
@@ -28,258 +49,135 @@ body {
   font: 12px/1.35 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   user-select: none;
   cursor: default;
-  -webkit-font-smoothing: antialiased;
 }
-.dim { color: var(--dim); }
+.dim { color: var(--text-2); }
+button { font: inherit; color: inherit; }
 
-/* Glued to the top edge of the monitor, like a notch. */
-#island {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 200px;
-  height: 32px;
-  background: var(--island);
-  border-radius: 0 0 var(--radius) var(--radius);
-  box-shadow: 0 0 0 rgba(0, 0, 0, 0);
-  transition:
-    width var(--spring-dur) var(--spring),
-    height var(--spring-dur) var(--spring),
-    --radius var(--spring-dur) var(--spring),
-    --ear var(--spring-dur) var(--spring),
-    box-shadow 0.3s var(--fade);
-  will-change: width, height;
-}
-#island.expanded {
-  --radius: 30px;
-  --ear: 14px;
-  --spring: var(--open);
-  --spring-dur: var(--open-dur);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
-}
+/* ------------------------------------------------------------------------------------------ */
+/* Taskbar widget: transparent so the real taskbar shows through, with the hover and pressed */
+/* states of the notification-area buttons next to it.                                        */
 
-/* Concave "ears" blending the island into the screen edge. */
-#island::before, #island::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  /* 1px overlap with the island hides the sub-pixel seam where they meet. */
-  width: calc(var(--ear) + 1px);
-  height: var(--ear);
+body.panel #widget, body.dock #details { display: none; }
+/*
+ * Measured from the notification-area buttons of the Windows 11 taskbar: 4 px above and below,
+ * 4 px corners, a translucent fill and a 1 px border (lighter at the top on a dark taskbar,
+ * darker at the bottom on a light one).
+ */
+:root {
+  --tb-hover: rgba(255, 255, 255, 0.0605);
+  --tb-hover-border: rgba(255, 255, 255, 0.0605);
+  --tb-hover-border-top: rgba(255, 255, 255, 0.1);
+  --tb-hover-border-bottom: rgba(255, 255, 255, 0.0605);
+  --tb-press: rgba(255, 255, 255, 0.0419);
 }
-#island::before {
-  left: calc(-1 * var(--ear));
-  background: radial-gradient(circle at 0 100%, transparent calc(var(--ear) - 0.5px), var(--island) var(--ear));
+:root[data-theme="light"] {
+  --tb-hover: rgba(255, 255, 255, 0.5);
+  --tb-hover-border: rgba(0, 0, 0, 0.02);
+  --tb-hover-border-top: rgba(0, 0, 0, 0.02);
+  --tb-hover-border-bottom: rgba(0, 0, 0, 0.06);
+  --tb-press: rgba(255, 255, 255, 0.3);
 }
-#island::after {
-  right: calc(-1 * var(--ear));
-  background: radial-gradient(circle at 100% 100%, transparent calc(var(--ear) - 0.5px), var(--island) var(--ear));
+#widget {
+  position: absolute; top: 4px; bottom: 4px; left: 0;
+  display: flex; align-items: center;
+  /* The fill stops inside the border, as in the shell: the border only tints what's behind. */
+  border: 1px solid transparent; border-radius: 4px; background-clip: padding-box;
 }
+#widget:hover, #widget.open {
+  background-color: var(--tb-hover);
+  border-color: var(--tb-hover-border-top) var(--tb-hover-border) var(--tb-hover-border-bottom);
+}
+#widget:active { background-color: var(--tb-press); border-color: var(--tb-hover-border); }
+#widget:active #compact { opacity: 0.786; }
 
-#clip { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; }
-
-#compact {
-  position: absolute; top: 0; left: 50%;
-  height: 32px; padding: 0 16px;
-  display: flex; align-items: center; gap: 14px; white-space: nowrap;
-  transform: translateX(-50%);
-  transition: opacity 0.22s var(--fade) 0.08s, filter 0.3s var(--fade) 0.05s, transform 0.4s var(--fade);
-}
-#island.expanded #compact {
-  opacity: 0; filter: blur(8px); transform: translateX(-50%) scale(1.25);
-  transition: opacity 0.12s var(--fade), filter 0.18s var(--fade), transform var(--open-dur) var(--open);
-}
-
+#compact { display: flex; align-items: center; gap: 4px; padding: 0 6px; white-space: nowrap; }
+#compact:has(> .dim, > .toast) { padding: 0 8px; }
 .chip { display: flex; align-items: center; gap: 6px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.chip .name { color: var(--dim); font-weight: 500; }
+.chip.toast { font-weight: 400; }
 .ring { width: 15px; height: 15px; transform: rotate(-90deg); }
 .ring circle { fill: none; stroke-width: 3; }
 .ring .bg { stroke: var(--track); }
-.ring .fg { stroke-linecap: round; transition: stroke-dasharray 0.8s var(--content); }
-
-#details {
-  position: absolute; top: 0; left: 50%;
-  --tx: -50%; --ty: 0px; width: 380px; max-height: 580px; overflow-y: auto;
-  padding: 16px 20px 18px;
-  opacity: 0; filter: blur(10px);
-  transform: translate(var(--tx), var(--ty)) scale(0.8);
-  transform-origin: var(--origin, top center);
-  transition: opacity 0.1s var(--fade), filter 0.12s var(--fade), transform var(--close-dur) var(--close);
-  pointer-events: none;
-}
-#details::-webkit-scrollbar { width: 0; }
-#island.expanded #details {
-  opacity: 1; filter: none; transform: translate(var(--tx), var(--ty));
-  pointer-events: auto;
-  transition: opacity 0.25s var(--fade) 0.06s, filter 0.3s var(--fade) 0.04s, transform var(--content-dur) var(--content);
-}
-
-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-header .title { font-weight: 600; font-size: 13px; }
-header #updated { margin-left: auto; font-size: 11px; }
-#refresh, .icon-btn {
-  display: grid; place-items: center; width: 24px; height: 24px; padding: 0;
-  border: 0; border-radius: 12px; background: var(--track); color: var(--text); cursor: pointer;
-  transition: background 0.15s, transform 0.2s var(--fade);
-}
-#refresh:hover, .icon-btn:hover { background: #3a3a3c; }
-#refresh:active, .icon-btn:active { transform: scale(0.9); }
-#refresh.spin svg { animation: spin 0.9s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-
-#accounts { display: flex; flex-direction: column; gap: 16px; }
-.acc-head { display: flex; align-items: baseline; gap: 8px; }
-.acc-head .name { font-size: 14px; font-weight: 600; }
-.plan {
-  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
-  padding: 1px 6px; border-radius: 6px; background: var(--track); color: var(--dim);
-}
-.acc-meta { font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 1px 0 6px; }
-.win { margin-top: 8px; }
-.win .row { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
-.win .row b { font-weight: 600; }
-.bar { height: 5px; border-radius: 3px; background: var(--track); overflow: hidden; margin: 4px 0 3px; }
-.bar > div {
-  height: 100%; border-radius: 3px; transform-origin: left;
-  transition: transform 0.9s var(--content);
-}
-#island:not(.expanded) .bar > div { transform: scaleX(0); transition-duration: 0.2s; }
-.reset { font-size: 10.5px; color: var(--dim); }
-.error { color: var(--warn); font-size: 11.5px; margin-top: 4px; }
-.empty { color: var(--dim); padding: 4px 0 2px; }
-
-/* Stagger the sections in after the island opens. */
-#accounts > section { transition: opacity 0.3s var(--fade), transform var(--content-dur) var(--content); }
-#island:not(.expanded) #accounts > section { opacity: 0; transform: translateY(-10px) scale(0.96); transition-duration: 0.1s; transition-delay: 0s !important; }
-
-/* Tray popover: the expanded card, free-standing, no ears. */
-body.panel #island {
-  position: static; transform: none; width: 100% !important; height: auto !important;
-  --radius: 18px; border-radius: var(--radius);
-  transition: none;
-}
-body.panel #island::before, body.panel #island::after, body.panel #compact { display: none; }
-body.panel #clip { position: static; }
-body.panel #details, body.panel #island.expanded #details { position: static; transform: none; width: 100%; max-height: none; }
-body.panel #island #details { animation: panel-in var(--content-dur) var(--content); }
-@keyframes panel-in { from { opacity: 0; transform: translateY(8px) scale(0.97); } }
-
-/* Taskbar widget: transparent so the real taskbar shows through, like a native tray item. */
-body.dock { --dock-text: #fff; --dock-dim: rgba(255, 255, 255, 0.72); --dock-hover: rgba(255, 255, 255, 0.08); }
-body.dock[data-taskbar="light"] { --dock-text: #1b1b1b; --dock-dim: rgba(0, 0, 0, 0.62); --dock-hover: rgba(0, 0, 0, 0.05); --track: rgba(0, 0, 0, 0.12); }
-body.dock #island {
-  position: absolute; inset: 4px 0; transform: none; width: auto !important; height: auto !important;
-  background: transparent; border-radius: 6px; transition: background 0.15s;
-}
-body.dock #island:hover { background: var(--dock-hover); }
-body.dock #island::before, body.dock #island::after, body.dock #details { display: none; }
-body.dock #compact { height: 100%; color: var(--dock-text); gap: 12px; padding: 0 10px; }
-body.dock .chip .name { color: var(--dock-dim); }
-
-/* While dragging, the widget becomes the island's pill; it previews where it will land. */
-body.dock.floating #island {
-  inset: 100px; border-radius: 16px; background: var(--island);
-  will-change: transform, filter, box-shadow;
-}
-body.dock.floating #compact { color: var(--text); padding: 0 16px; }
-body.dock.floating .chip .name { color: var(--dim); }
-/* Drop-zone hint: a soft glow instead of a hard outline. */
-body.dock.floating #clip { transition: box-shadow 0.25s var(--fade); }
-body.dock.floating[data-zone="taskbar"] #clip,
-body.dock.floating[data-zone="top"] #clip { box-shadow: inset 0 0 0 1.5px rgba(48, 209, 88, 0.9), inset 0 0 14px rgba(48, 209, 88, 0.35); }
-
-/* Drag affordance: grab cursor and an iOS-style grabber under the card. */
-#island { cursor: grab; }
-#island:active { cursor: grabbing; }
-#island button { cursor: pointer; }
-.grabber { width: 36px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.16); margin: 14px auto -4px; }
-body.panel .grabber { display: none; }
-
+.ring .fg { stroke-linecap: round; transition: stroke-dasharray 0.8s var(--ease); }
 
 /*
- * Island window: the shape is drawn by pieces (see shape.js). #island only holds the content,
- * sized to the shape's bounding box. Everything springs between collapsed and expanded.
+ * The provider's mark inside its usage ring. Both marks share one color and
+ * optical size (the ring carries the usage color); sizes are even so everything centers on
+ * whole pixels.
  */
-@property --s { syntax: "<length>"; inherits: false; initial-value: 0px; }
-body.main #stage { position: absolute; inset: 0; will-change: transform; }
-/* Promote the animated layers so springs run on the compositor. */
-#details, #compact, #compact-v { will-change: transform, opacity; }
-/* In the island window a JS spring drives every frame (see main.js), so no CSS transitions. */
-body.main .piece { position: absolute; background: var(--island); }
-body.main .piece, body.main #island, body.main #compact, body.main #compact-v, body.main #details,
-body.main #island.expanded #compact, body.main #island.expanded #compact-v, body.main #island.expanded #details {
-  transition: none;
-}
-body.main .piece.ear { width: var(--s); height: var(--s); }
-body.main { --spring: var(--close); --spring-dur: var(--close-dur); }
-body.main.expanded { --spring: var(--open); --spring-dur: var(--open-dur); }
-body.main #island { background: transparent; border-radius: 0; transform: none; box-shadow: none; }
-body.main #island::before, body.main #island::after { display: none; }
-body.main #clip { border-radius: 0; }
-body.main #compact, body.main #compact-v { transform: none; left: 0; top: 0; }
-
-/* Vertical bar content: chips run down the edge, text turned on its side. */
-#compact-v {
-  position: absolute; display: flex; align-items: center; gap: 14px; white-space: nowrap;
-  writing-mode: vertical-rl; padding: 14px 0; width: 32px;
-  transition: opacity 0.22s var(--fade) 0.08s, filter 0.3s var(--fade) 0.05s, transform 0.4s var(--fade);
-}
-#compact-v:empty { display: none; }
-body:not(.main) #compact-v { display: none; }
-body.main #compact:empty { display: none; }
-
-/* While dragging, the pill stands in for the cursor. */
-body.dock.floating, body.dock.floating *, body.dragging, body.dragging * { cursor: none !important; }
-
-/* Accounts inside a provider section */
-.acct { padding: 8px 10px 9px; margin: 6px -10px 0; border-radius: 12px; }
-.acct.active { background: rgba(255, 255, 255, 0.06); }
-.acct-head { display: flex; align-items: center; gap: 8px; }
-.acct-head .who { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.acct-head .in-use, .acct-head .use { margin-left: auto; flex: none; font-size: 10.5px; font-weight: 600; }
-.acct-head .in-use { color: var(--ok); }
-.acct-head .use {
-  border: 0; border-radius: 10px; padding: 3px 10px; cursor: pointer;
-  background: var(--track); color: var(--text); font-family: inherit;
-  transition: background 0.15s, transform 0.2s var(--fade);
-}
-.acct-head .use:hover { background: #3a3a3c; }
-.acct-head .use:active { transform: scale(0.94); }
-.acct-head .use:disabled { opacity: 0.6; cursor: default; }
-.acct .acc-meta { margin: 1px 0 2px; }
-.acct .win:first-of-type { margin-top: 6px; }
-.chip.toast { font-weight: 600; color: var(--text); }
-
-/* Switching feedback: the badge appears at once and settles when the backend confirms. */
-.acct { transition: background 0.3s var(--fade); }
-.acct-head .in-use { animation: badge-in 0.35s var(--fade); }
-.acct-head .in-use.pending { opacity: 0.55; }
-@keyframes badge-in { from { opacity: 0; transform: scale(0.85); } }
-.acct-head .use.busy { color: transparent; position: relative; }
-.acct-head .use.busy::after {
-  content: ""; position: absolute; inset: 0; margin: auto; width: 10px; height: 10px; border-radius: 50%;
-  border: 1.5px solid var(--dim); border-top-color: var(--text); animation: spin 0.7s linear infinite;
-}
-
-/* Usage-limit resets held by an account */
-.reset-grant { display: flex; gap: 6px; align-items: baseline; margin-top: 8px; font-size: 11px; color: var(--dim); }
-.reset-grant span { color: var(--text); }
-.reset-grant.usable, .reset-grant.usable span { color: var(--ok); }
-
-/*
- * Minimal collapsed style: the provider's mark inside its usage ring. Both marks share one
- * color and optical size (the ring carries the usage color); sizes are even so everything
- * centers on whole pixels.
- */
-#compact:has(.ring-mark) { gap: 10px; padding: 0 12px; }
 .ring-mark { position: relative; display: grid; place-items: center; width: 24px; height: 24px; flex: none; }
 .ring-mark .ring { position: absolute; inset: 0; width: 24px; height: 24px; }
 .ring-mark .ring circle { stroke-width: 1.6; }
-.ring-mark .ring .bg { stroke: rgba(255, 255, 255, 0.14); }
-body.dock[data-taskbar="light"] .ring-mark .ring .bg { stroke: rgba(0, 0, 0, 0.12); }
-.chip .mark { position: relative; flex: none; fill: currentColor; color: rgba(255, 255, 255, 0.92); }
+.chip .mark { position: relative; flex: none; fill: currentColor; color: var(--text); }
 /* The spark is all thin rays and the Codex mark a solid shape: balance their weight. */
 .chip .mark.claude { width: 14px; height: 14px; }
 .chip .mark.codex { width: 12px; height: 12px; }
-body.dock .chip .mark { color: var(--dock-text); }
+
+/* ------------------------------------------------------------------------------------------ */
+/* Flyout: on the system's acrylic backdrop (see tauri.conf.json), laid out like the shell's   */
+/* own flyouts.                                                                               */
+
+/* The blur comes from the window's acrylic; its own tint is Windows 10's (a muddy gray), so the
+   flyout paints the Windows 11 tint over it. DWM rounds the corners. */
+html:has(body.panel) { background: var(--flyout); }
+#details {
+  padding: 12px 16px 16px;
+  animation: flyout-in 0.25s var(--ease);
+}
+@keyframes flyout-in { from { opacity: 0; transform: translateY(16px); } }
+
+header { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; }
+header .title { font-weight: 600; font-size: 14px; }
+header #updated { margin-left: auto; margin-right: 4px; }
+.icon-btn {
+  display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
+  border: 0; border-radius: 4px; background: transparent; color: var(--text);
+  transition: background-color 83ms linear;
+}
+.icon-btn:hover { background: var(--subtle-hover); }
+.icon-btn:active { background: var(--subtle-press); color: var(--text-2); }
+#refresh.spin svg { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#accounts { display: flex; flex-direction: column; gap: 12px; }
+.acc-head .name { font-size: 12px; font-weight: 600; color: var(--text-2); }
+.plan {
+  font-size: 11px; padding: 0 6px; border-radius: 4px;
+  background: var(--control); border: 1px solid var(--control-stroke); color: var(--text-2);
+}
+.acc-meta { font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 1px 0 2px; }
+.win { margin-top: 8px; }
+.acct .win:first-of-type { margin-top: 6px; }
+.win .row { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+.win .row b { font-weight: 600; }
+.bar { height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; margin: 5px 0 3px; }
+.bar > div { height: 100%; border-radius: 2px; }
+.reset { font-size: 11px; color: var(--text-2); }
+.error { color: var(--warn); font-size: 12px; margin-top: 4px; }
+.empty { color: var(--text-2); padding: 4px 0 2px; }
+
+/* Accounts: cards like the Settings app's, the signed-in one raised. */
+.acct { padding: 10px 12px 11px; margin-top: 4px; border-radius: 4px; border: 1px solid transparent; }
+.acct.active { background: var(--card); border-color: var(--card-stroke); }
+.acct-head { display: flex; align-items: center; gap: 8px; }
+.acct-head .who { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.acct-head .in-use, .acct-head .use { margin-left: auto; flex: none; }
+.acct-head .in-use { color: var(--ok); font-weight: 600; }
+.acct-head .in-use.pending { opacity: 0.55; }
+.acct-head .use {
+  min-height: 24px; padding: 2px 11px; border-radius: 4px;
+  background: var(--control); border: 1px solid var(--control-stroke); color: var(--text);
+  transition: background-color 83ms linear;
+}
+.acct-head .use:hover { background: var(--control-hover); }
+.acct-head .use:active { background: var(--control-press); color: var(--text-2); }
+.acct-head .use:disabled { opacity: 0.6; }
+.acct-head .use.busy { color: transparent; position: relative; }
+.acct-head .use.busy::after {
+  content: ""; position: absolute; inset: 0; margin: auto; width: 10px; height: 10px; border-radius: 50%;
+  border: 1.5px solid var(--text-3); border-top-color: var(--text); animation: spin 0.7s linear infinite;
+}
+
+/* Usage-limit resets held by an account */
+.reset-grant { display: flex; gap: 6px; align-items: baseline; margin-top: 8px; font-size: 11px; color: var(--text-2); }
+.reset-grant span { color: var(--text); }
+.reset-grant.usable, .reset-grant.usable span { color: var(--ok); }

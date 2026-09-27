@@ -1,6 +1,6 @@
 //! Multiple accounts per provider.
 //!
-//! Each CLI signs in one account at a time, in its default config location. Usage Bar keeps a
+//! Each CLI signs in one account at a time, in its default config location. SlopBar keeps a
 //! vault with a saved login ("slot") for every account it has seen there, and switches accounts
 //! by writing a slot back into those default files — the official CLI keeps doing all the work,
 //! nothing is proxied.
@@ -97,7 +97,7 @@ fn read_json(path: &Path) -> Option<Value> {
 
 /// Writes through a temp file and a rename so a CLI never reads a half-written file.
 fn write_json(path: &Path, value: &Value) -> std::io::Result<()> {
-    let tmp = path.with_extension("usagebar-tmp");
+    let tmp = path.with_extension("slopbar-tmp");
     std::fs::write(&tmp, serde_json::to_string_pretty(value)?)?;
     std::fs::rename(&tmp, path)
 }
@@ -389,7 +389,7 @@ fn login_source(provider: Provider, sources: &[Source]) -> Option<&Source> {
 /// imports the account once the sign-in finishes. The current login is never touched.
 pub fn start_login(provider: Provider, sources: &[Source]) -> Result<LoginJob, String> {
     let source = login_source(provider, sources).ok_or("CLI not found")?.clone();
-    let name = format!(".usage-bar-login-{}", chrono::Utc::now().timestamp_millis());
+    let name = format!(".slopbar-login-{}", chrono::Utc::now().timestamp_millis());
     let (var, cmd) = match provider {
         Provider::Claude => ("CLAUDE_CONFIG_DIR", "claude auth login"),
         Provider::Codex => ("CODEX_HOME", "codex login"),

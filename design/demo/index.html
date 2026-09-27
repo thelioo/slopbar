@@ -1,255 +1,46 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-slopbar-host>
 <head>
 <meta charset="utf-8" />
-<title>Usage Bar demo</title>
+<title>SlopBar demo</title>
 <!--
-  Scripted demo used to record design/demo.gif. It runs the real island (island.html loads
-  src/index.html's code) on a fake desktop and plays a timeline: hover, drag to a side and
-  the taskbar, then back to the top so the recording loops.
-  Serve the repo root over HTTP (module scripts) and open /design/demo/.
+  Scripted demo for recording design/demo.gif. It runs the real widget and flyout (app.html,
+  built from src/index.html) in a fake taskbar (desktop.js) and plays a timeline: open the
+  flyout, then switch to a light taskbar, and back so the recording loops.
+  Run `pnpm site` and open /design/demo/.
 -->
-<style>
-  :root { --island: #000; }
-  * { box-sizing: border-box; margin: 0; }
-  html, body { width: 1280px; height: 720px; overflow: hidden; }
-  body {
-    font: 12px/1.35 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-    background:
-      radial-gradient(60% 80% at 18% 28%, #4a57b8 0%, transparent 60%),
-      radial-gradient(50% 70% at 88% 64%, #c2507a 0%, transparent 60%),
-      radial-gradient(70% 90% at 58% 115%, #f09a48 0%, transparent 55%),
-      #1b1c35;
-  }
-  iframe { position: absolute; width: 600px; height: 700px; border: 0; background: transparent; }
-
-  /* Windows 11-style taskbar */
-  .taskbar {
-    position: absolute; left: 0; right: 0; bottom: 0; height: 48px;
-    background: rgba(243, 243, 243, 0.82); backdrop-filter: blur(30px) saturate(1.4);
-    border-top: 1px solid rgba(255, 255, 255, 0.5);
-  }
-  .apps { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); display: flex; gap: 6px; }
-  .apps i { width: 32px; height: 32px; border-radius: 6px; display: block; }
-  .tray { position: absolute; right: 12px; top: 0; height: 48px; display: flex; align-items: center; gap: 14px; color: #1b1b1b; }
-  .tray .icons { display: flex; gap: 10px; }
-  .tray .icons i { width: 14px; height: 14px; border-radius: 3px; background: #444; opacity: 0.75; display: block; }
-  .tray .clock { text-align: right; font-size: 11.5px; line-height: 1.3; }
-
-  /* Taskbar widget (dock mode) */
-  .dock {
-    position: absolute; left: 876px; top: 676px; height: 40px; padding: 0 10px; border-radius: 6px;
-    display: flex; align-items: center; gap: 12px; color: #1b1b1b; font-weight: 600;
-    opacity: 0; transform: scale(1.18);
-  }
-  .dock .name { color: rgba(0, 0, 0, 0.6); font-weight: 500; }
-  .chip { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .ring { width: 15px; height: 15px; transform: rotate(-90deg); }
-  .ring circle { fill: none; stroke-width: 3; }
-
-  /* The pill that follows the cursor while dragging */
-  .ghost {
-    position: absolute; left: 0; top: 0; width: 210px; height: 32px; border-radius: 16px;
-    background: #000; color: #f5f5f7; font-weight: 600;
-    display: flex; align-items: center; justify-content: center; gap: 14px;
-    opacity: 0; will-change: transform, filter;
-  }
-  .ghost .name { color: #8e8e93; font-weight: 500; }
-
-  /* Drop slots */
-  svg.slot { position: absolute; overflow: visible; opacity: 0; transform: scale(0.85);
-    transition: opacity 0.3s cubic-bezier(0.2, 0, 0, 1), transform 0.45s cubic-bezier(0.32, 0.72, 0, 1), filter 0.25s; }
-  svg.slot path { fill: rgba(20, 20, 22, 0.16); stroke: rgba(255, 255, 255, 0.55); stroke-width: 1; transition: fill 0.2s, stroke 0.2s; }
-  .slots.on svg.slot { opacity: 1; transform: none; }
-  svg.slot.active { transform: scale(1.06) !important; filter: drop-shadow(0 0 12px rgba(48, 209, 88, 0.45)); }
-  svg.slot.active path { fill: rgba(48, 209, 88, 0.14); stroke: rgba(48, 209, 88, 0.95); stroke-width: 1.5; }
-
-  .cursor { position: absolute; left: 0; top: 0; width: 22px; height: 22px; pointer-events: none; z-index: 10;
-    filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.45)); transition: opacity 0.12s; }
-</style>
+<script src="backend.js"></script>
 </head>
 <body>
-  <iframe id="island" src="island.html" allowtransparency="true"></iframe>
-  <div class="slots" id="slots"></div>
-  <div class="taskbar">
-    <div class="apps">
-      <i style="background:#2b7cd3"></i><i style="background:#f2b01e"></i><i style="background:#1e9e5a"></i>
-      <i style="background:#7a5af5"></i><i style="background:#e8453c"></i>
-    </div>
-    <div class="tray">
-      <div class="icons"><i></i><i></i><i></i></div>
-      <div class="clock">9:41 AM<br />9/25/2026</div>
-    </div>
-  </div>
-  <div class="dock" id="dock"></div>
-  <div class="ghost" id="ghost"></div>
-  <svg class="cursor" id="cursor" viewBox="0 0 22 22"><path d="M3 2 L3 18 L7.2 14.2 L10 20.5 L12.8 19.3 L10.1 13.2 L15.8 13.2 Z" fill="#fff" stroke="#000" stroke-width="1.2" stroke-linejoin="round"/></svg>
-
 <script type="module">
-const W = 1280, H = 720, WORK_H = 672;
-const $frame = document.getElementById("island");
-const $cursor = document.getElementById("cursor");
-const $ghost = document.getElementById("ghost");
-const $slots = document.getElementById("slots");
-const $dock = document.getElementById("dock");
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+import { move, click, sleep, setFlyout, setTheme, centerOf, widget, frames } from "./desktop.js";
 
-const ring = (p, color) => {
-  const c = 2 * Math.PI * 6;
-  return `<svg class="ring" viewBox="0 0 15 15"><circle cx="7.5" cy="7.5" r="6" stroke="rgba(128,128,128,.3)"/>
-    <circle cx="7.5" cy="7.5" r="6" stroke="${color}" stroke-linecap="round" stroke-dasharray="${(p / 100) * c} ${c}"/></svg>`;
-};
-const chips = `<span class="chip"><span class="name">Claude</span>${ring(33, "#30d158")}33%</span>
-  <span class="chip"><span class="name">Codex</span>${ring(76, "#ff9f0a")}76%</span>`;
-$ghost.innerHTML = chips;
-$dock.innerHTML = chips;
-
-// Where the 600x700 island window sits for each anchor.
-const FRAME_AT = { top: [340, 0], right: [680, (WORK_H - 700) / 2], left: [0, (WORK_H - 700) / 2] };
-
-// Drop slots (same outlines as src/overlay.html).
-const PILL = 210, T = 32;
-const SLOTS = [
-  { id: "top", x: (W - PILL) / 2, y: 0, w: PILL, h: T },
-  { id: "left", x: 0, y: (WORK_H - 168) / 2, w: 32, h: 168 }, { id: "right", x: W - 32, y: (WORK_H - 168) / 2, w: 32, h: 168 },
-  { id: "taskbar", x: 876, y: WORK_H, w: PILL, h: 48 },
-];
-function outline(id, w, h) {
-  if (id === "taskbar") return { d: `M8 0 H${w - 8} A8 8 0 0 1 ${w} 8 V${h - 8} A8 8 0 0 1 ${w - 8} ${h} H8 A8 8 0 0 1 0 ${h - 8} V8 A8 8 0 0 1 8 0 Z`, flip: "" };
-  if (id === "top") return { d: `M0 0 H${w} V${h - 14} A14 14 0 0 1 ${w - 14} ${h} H14 A14 14 0 0 1 0 ${h - 14} Z`, flip: "" };
-  if (id === "left" || id === "right") return { d: `M${w} 0 V${h} H14 A14 14 0 0 1 0 ${h - 14} V14 A14 14 0 0 1 14 0 Z`, flip: id === "left" ? "scale(-1,1)" : "" };
-  return { d: "", flip: "" };
-}
-$slots.innerHTML = SLOTS.map((s, i) => {
-  const { d, flip } = outline(s.id, s.w, s.h);
-  return `<svg class="slot" data-id="${s.id}" width="${s.w}" height="${s.h}" viewBox="0 0 ${s.w} ${s.h}"
-    style="left:${s.x}px;top:${s.y}px;transition-delay:${i * 25}ms,${i * 25}ms,0s">
-    <g transform-origin="${s.w / 2} ${s.h / 2}" transform="${flip}"><path d="${d}"/></g></svg>`;
-}).join("");
-
-let cx = 640, cy = 300;
-const place = () => ($cursor.style.transform = `translate(${cx - 3}px, ${cy - 2}px)`);
-place();
-
-function move(x, y, ms, onFrame) {
-  const [x0, y0] = [cx, cy];
-  const start = performance.now();
-  return new Promise((done) => {
-    const tick = (now) => {
-      const t = Math.min(1, (now - start) / ms);
-      cx = x0 + (x - x0) * ease(t);
-      cy = y0 + (y - y0) * ease(t);
-      place();
-      onFrame?.();
-      t < 1 ? requestAnimationFrame(tick) : done();
-    };
-    requestAnimationFrame(tick);
-  });
-}
-
-const island = () => $frame.contentWindow.demo;
-function showIsland(anchor) {
-  const [x, y] = FRAME_AT[anchor];
-  $frame.style.left = `${x}px`;
-  $frame.style.top = `${y}px`;
-  island().anchor(anchor);
-  $frame.style.opacity = 1;
-  island().land();
-}
-
-/** Picks the island up at the cursor, flies it to (x, y) with slots and magnet, and drops it. */
-async function drag(x, y, ms, from) {
-  if (from === "dock") $dock.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, fill: "forwards" });
-  else $frame.style.opacity = 0;
-  $cursor.style.opacity = 0;
-  $slots.classList.add("on");
-  $ghost.style.opacity = 1;
-  $ghost.animate([{ scale: 1, boxShadow: "0 0 0 rgba(0,0,0,0)" }, { scale: 1.06, boxShadow: "0 18px 36px rgba(0,0,0,.45)" }],
-    { duration: 260, easing: "cubic-bezier(0.2, 0, 0, 1)", fill: "forwards" });
-  let last = [cx, cy], vel = [0, 0], pull = [0, 0], active = null;
-  await move(x, y, ms, () => {
-    // Velocity drives tilt, stretch and motion blur, like the app.
-    const v = [(cx - last[0]) * 60, (cy - last[1]) * 60];
-    last = [cx, cy];
-    vel = [vel[0] + (v[0] - vel[0]) * 0.25, vel[1] + (v[1] - vel[1]) * 0.25];
-    const speed = Math.hypot(...vel);
-    const tilt = Math.max(-10, Math.min(10, vel[0] / 120));
-    const stretch = Math.min(0.18, speed / 9000);
-    // Magnet: pull grows smoothly toward the nearest slot and eases over time.
-    let goal = [0, 0], best = null, bestD = 160;
-    for (const s of SLOTS) {
-      const dx = Math.max(0, s.x - cx, cx - (s.x + s.w)), dy = Math.max(0, s.y - cy, cy - (s.y + s.h));
-      const d = Math.hypot(dx, dy);
-      if (d <= bestD) { bestD = d; best = s; }
-    }
-    if (best) {
-      const near = 1 - bestD / 160, k = 0.35 * near * near * (3 - 2 * near);
-      goal = [(best.x + best.w / 2 - cx) * k, (best.y + best.h / 2 - cy) * k];
-    }
-    pull = [pull[0] + (goal[0] - pull[0]) * 0.22, pull[1] + (goal[1] - pull[1]) * 0.22];
-    if ((best?.id ?? null) !== active) {
-      active = best?.id ?? null;
-      $slots.querySelectorAll(".slot").forEach((el) => el.classList.toggle("active", el.dataset.id === active));
-    }
-    $ghost.style.transform = `translate(${cx + pull[0] - 105}px, ${cy + pull[1] - 16}px) rotate(${tilt}deg) scale(${1 + stretch}, ${1 - stretch / 2})`;
-    $ghost.style.filter = speed > 300 ? `blur(${Math.min(3, speed / 1500).toFixed(2)}px)` : "";
-  });
-  await sleep(120);
-  $ghost.style.opacity = 0;
-  $slots.classList.remove("on");
-  $slots.querySelectorAll(".slot").forEach((el) => el.classList.remove("active"));
-  $cursor.style.opacity = 1;
-  return active;
-}
-
-async function dockLand() {
-  $dock.animate(
-    [{ opacity: 0, transform: "scale(1.18)" }, { opacity: 1, transform: "scale(0.97)", offset: 0.6 }, { opacity: 1, transform: "scale(1)" }],
-    { duration: 560, easing: "cubic-bezier(0.2, 0, 0, 1)", fill: "forwards" },
-  );
-}
-
-await new Promise((r) => ($frame.contentWindow.demo ? r() : $frame.addEventListener("load", r)));
-await sleep(400);
-showIsland("top");
+const rest = [760, 330];
+const atWidget = () => centerOf(frames.dock, widget());
 window.demoReady = true;
 await sleep(900);
 
-// Hover to open, move away to close.
-await move(640, 16, 900);
-island().hover(true);
+// Click the widget: the flyout lists every account.
+await move(...atWidget(), 1000);
+await click(widget());
+await sleep(3200);
+await move(...rest, 800);
+setFlyout(false);
+await sleep(700);
+
+// It follows the taskbar's theme.
+setTheme("light");
+await sleep(1200);
+await move(...atWidget(), 900);
+await click(widget());
 await sleep(2600);
-island().hover(false);
-await move(640, 360, 700);
-await sleep(500);
+await move(...rest, 800);
+setFlyout(false);
+await sleep(700);
 
-// To the right edge: a vertical bar that opens into the card.
-await move(640, 14, 700);
-await drag(1262, 336, 1200);
-showIsland("right");
-await sleep(1000);
-await move(1268, 336, 400);
-island().hover(true);
-await sleep(2400);
-island().hover(false);
-await move(1000, 360, 600);
-await sleep(400);
-
-// Into the taskbar, next to the clock.
-await move(1266, 336, 600);
-await drag(980, 696, 1300);
-$frame.style.opacity = 0;
-dockLand();
-await sleep(1700);
-
-// And back to the top.
-await move(980, 696, 300);
-await drag(640, 14, 1300, "dock");
-showIsland("top");
-await sleep(900);
-await move(640, 300, 700);
-await sleep(500);
+// Back to the start, so the recording loops.
+setTheme("dark");
+await sleep(1200);
 window.demoDone = true;
 </script>
 </body>

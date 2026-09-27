@@ -34,12 +34,13 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Every build on main is a release: 0.1.<run number>.
+      # Every build on main is a release: 0.2.<run number>. Usage Bar (the old repo) published
+      # 0.1.x, so SlopBar's releases must stay above them for those installs to update.
       - name: Set version
         id: version
         shell: pwsh
         run: |
-          $version = "0.1.${{ github.run_number }}"
+          $version = "0.2.${{ github.run_number }}"
           $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
           $conf.version = $version
           $conf | ConvertTo-Json -Depth 20 | Set-Content src-tauri/tauri.conf.json
@@ -60,7 +61,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: v${{ steps.version.outputs.version }}
-          releaseName: Usage Bar v${{ steps.version.outputs.version }}
+          releaseName: SlopBar v${{ steps.version.outputs.version }}
           releaseBody: Built from ${{ github.sha }}.
           releaseDraft: false
           prerelease: false

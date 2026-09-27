@@ -1,142 +1,72 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-slopbar-host>
 <head>
 <meta charset="utf-8" />
-<title>Usage Bar accounts demo</title>
+<title>SlopBar accounts demo</title>
 <!--
-  Scripted demo used to record design/accounts.gif: switching accounts from the island, then
-  the balancer switching back on its own when the active account hits its limit. Runs the real
-  island (island.html) on a fake desktop. Serve the repo root over HTTP and open
+  Scripted demo for recording design/accounts.gif: switching accounts from the flyout, then the
+  balancer switching back on its own when the active account hits its limit. Runs the real
+  widget and flyout (app.html) in a fake taskbar (desktop.js). Run `pnpm site` and open
   /design/demo/accounts.html.
 -->
-<style>
-  * { box-sizing: border-box; margin: 0; }
-  html, body { width: 1280px; height: 720px; overflow: hidden; }
-  body {
-    background:
-      radial-gradient(60% 80% at 18% 28%, #4a57b8 0%, transparent 60%),
-      radial-gradient(50% 70% at 88% 64%, #c2507a 0%, transparent 60%),
-      radial-gradient(70% 90% at 58% 115%, #f09a48 0%, transparent 55%),
-      #1b1c35;
-  }
-  iframe { position: absolute; left: 340px; top: 0; width: 600px; height: 700px; border: 0; background: transparent; }
-  .taskbar {
-    position: absolute; left: 0; right: 0; bottom: 0; height: 48px;
-    background: rgba(243, 243, 243, 0.82); backdrop-filter: blur(30px) saturate(1.4);
-    border-top: 1px solid rgba(255, 255, 255, 0.5);
-  }
-  .apps { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); display: flex; gap: 6px; }
-  .apps i { width: 32px; height: 32px; border-radius: 6px; display: block; }
-  .tray { position: absolute; right: 12px; top: 0; height: 48px; display: flex; align-items: center; gap: 14px; color: #1b1b1b;
-    font: 11.5px/1.3 "Segoe UI", system-ui, sans-serif; text-align: right; }
-  .tray .icons { display: flex; gap: 10px; }
-  .tray .icons i { width: 14px; height: 14px; border-radius: 3px; background: #444; opacity: 0.75; display: block; }
-  .cursor { position: absolute; left: 0; top: 0; width: 22px; height: 22px; z-index: 10;
-    filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.45)); transition: scale 0.12s; }
-  .cursor.down { scale: 0.85; }
-</style>
+<script src="backend.js"></script>
 </head>
 <body>
-  <iframe id="island" src="island.html" allowtransparency="true"></iframe>
-  <div class="taskbar">
-    <div class="apps">
-      <i style="background:#2b7cd3"></i><i style="background:#f2b01e"></i><i style="background:#1e9e5a"></i>
-      <i style="background:#7a5af5"></i><i style="background:#e8453c"></i>
-    </div>
-    <div class="tray"><div class="icons"><i></i><i></i><i></i></div><div>9:41 AM<br />9/25/2026</div></div>
-  </div>
-  <svg class="cursor" id="cursor" viewBox="0 0 22 22"><path d="M3 2 L3 18 L7.2 14.2 L10 20.5 L12.8 19.3 L10.1 13.2 L15.8 13.2 Z" fill="#fff" stroke="#000" stroke-width="1.2" stroke-linejoin="round"/></svg>
-
 <script type="module">
-const FRAME_X = 340;
-const $frame = document.getElementById("island");
-const $cursor = document.getElementById("cursor");
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+import { move, click, sleep, setFlyout, centerOf, widget, frames } from "./desktop.js";
 
-let cx = 760, cy = 330;
-const place = () => ($cursor.style.transform = `translate(${cx - 3}px, ${cy - 2}px)`);
-place();
-function move(x, y, ms) {
-  const [x0, y0] = [cx, cy];
-  const start = performance.now();
-  return new Promise((done) => {
-    const tick = (now) => {
-      const t = Math.min(1, (now - start) / ms);
-      cx = x0 + (x - x0) * ease(t);
-      cy = y0 + (y - y0) * ease(t);
-      place();
-      t < 1 ? requestAnimationFrame(tick) : done();
-    };
-    requestAnimationFrame(tick);
-  });
-}
-async function click(el) {
-  $cursor.classList.add("down");
-  await sleep(110);
-  el.click();
-  $cursor.classList.remove("down");
-}
-
-await new Promise((r) => ($frame.contentWindow.demo ? r() : $frame.addEventListener("load", r)));
-const demo = $frame.contentWindow.demo;
-const doc = $frame.contentWindow.document;
+const { state, emit, snapshot } = window.slopbar;
 const hours = (h) => new Date(Date.now() + h * 3.6e6).toISOString();
 
 // Two Claude accounts (Work is running hot) and one Codex account.
-const accounts = (active, personalSession, workSession) => ({
-  accounts: [
-    { id: "personal", provider: "claude", email: "me@gmail.com", alias: "Personal", plan: "pro", org: null,
-      active: active === "personal", sources: active === "personal" ? ["Windows", "WSL: Ubuntu"] : [],
-      windows: [{ kind: "session", used_percent: personalSession, resets_at: hours(4.6) }, { kind: "weekly", used_percent: 18, resets_at: hours(96) }] },
-    { id: "work", provider: "claude", email: "me@acme.com", alias: "Work", plan: "max", org: "Acme",
-      active: active === "work", sources: active === "work" ? ["Windows", "WSL: Ubuntu"] : [],
-      windows: [{ kind: "session", used_percent: workSession, resets_at: hours(0.4) }, { kind: "weekly", used_percent: 52, resets_at: hours(60) }] },
-    { id: "codex", provider: "codex", email: "you@example.com", plan: "pro", active: true, sources: ["WSL: Ubuntu"],
-      windows: [{ kind: "session", used_percent: 41, resets_at: hours(3) }, { kind: "weekly", used_percent: 76, resets_at: hours(44) }] },
-  ],
-  updated_at: new Date().toISOString(),
-});
+const accounts = (active, personalSession, workSession) => [
+  { id: "personal", provider: "claude", email: "me@gmail.com", plan: "pro", org: null, active: active === "personal",
+    windows: [{ kind: "session", used_percent: personalSession, resets_at: hours(4.6) }, { kind: "weekly", used_percent: 18, resets_at: hours(96) }] },
+  { id: "work", provider: "claude", email: "me@acme.com", plan: "max", org: "Acme", active: active === "work",
+    windows: [{ kind: "session", used_percent: workSession, resets_at: hours(0.4) }, { kind: "weekly", used_percent: 52, resets_at: hours(60) }] },
+  { id: "codex", provider: "codex", email: "you@example.com", plan: "pro", active: true,
+    windows: [{ kind: "session", used_percent: 41, resets_at: hours(3) }, { kind: "weekly", used_percent: 76, resets_at: hours(44) }] },
+];
+const show = (list) => {
+  state.accounts = list;
+  emit("usage-updated", snapshot());
+};
 
-demo.setSnap(accounts("work", 12, 88));
-demo.onSwitch(async ({ provider, id }) => {
-  await sleep(650);
-  const next = accounts(id, 12, 88);
-  demo.switched({ provider, from: "Work", to: "Personal", auto: false });
-  return next;
-});
+show(accounts("work", 12, 88));
+state.switchDelay = 650;
+const rest = [760, 330];
+const atWidget = () => centerOf(frames.dock, widget());
 window.demoReady = true;
 await sleep(900);
 
-// Open the island and switch to the Personal account by hand.
-await move(640, 16, 800);
-demo.hover(true);
+// Open the flyout and switch to the Personal account by hand.
+await move(...atWidget(), 900);
+await click(widget());
 await sleep(1300);
-const use = doc.querySelector("button.use");
-const r = use.getBoundingClientRect();
-await move(FRAME_X + r.left + r.width / 2, r.top + r.height / 2 + 2, 800);
+const use = frames.panel.contentDocument.querySelector("button.use");
+await move(...centerOf(frames.panel, use), 800);
 await sleep(250);
 await click(use);
 await sleep(1700);
-demo.hover(false);
-await move(760, 330, 700);
+await move(...rest, 700);
+setFlyout(false);
 await sleep(2600);
 
 // Personal fills up; at 90% the balancer switches back to Work (whose session has reset).
 for (let p = 14; p <= 92; p += 3) {
-  demo.setSnap(accounts("personal", p, 88));
+  show(accounts("personal", p, 88));
   await sleep(110);
 }
-demo.setSnap(accounts("work", 92, 3));
-demo.switched({ provider: "claude", from: "Personal", to: "Work", auto: true });
+show(accounts("work", 92, 3));
+emit("account-switched", { provider: "claude", from: "Personal", to: "Work", auto: true });
 await sleep(3300);
 
 // Open to show Work in use again.
-await move(640, 16, 700);
-demo.hover(true);
+await move(...atWidget(), 800);
+await click(widget());
 await sleep(2600);
-demo.hover(false);
-await move(760, 330, 700);
+await move(...rest, 700);
+setFlyout(false);
 await sleep(700);
 window.demoDone = true;
 </script>

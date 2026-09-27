@@ -1,18 +1,26 @@
-// Assembles the website into .site/ (site/ plus the app's UI in src/ and the demo pages and
-// GIFs from design/, which the live demo loads) and, unless --build is passed, serves it.
-//   pnpm site          build and serve at http://localhost:8080
+// Assembles the website into .site/ (site/ plus the app's UI in src/ and the demo pages from
+// design/demo/, which the live demo loads) and, unless --build is passed, serves it.
+//   pnpm site          build and serve at http://localhost:8080 (the scripted demos for
+//                      recording GIFs are at /design/demo/ and /design/demo/accounts.html)
 //   pnpm site --build  build only (used by the Pages workflow)
-import { cpSync, mkdirSync, rmSync, readFileSync, existsSync, statSync } from "node:fs";
+import { cpSync, rmSync, readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
 
 const out = ".site";
 rmSync(out, { recursive: true, force: true });
-mkdirSync(join(out, "design/demo"), { recursive: true });
 cpSync("site", out, { recursive: true });
 cpSync("src", join(out, "src"), { recursive: true });
-for (const gif of ["demo.gif", "accounts.gif"]) cpSync(join("design", gif), join(out, "design", gif));
-for (const page of ["island.html", "settings.html"]) cpSync(join("design/demo", page), join(out, "design/demo", page));
+cpSync("design/demo", join(out, "design/demo"), { recursive: true });
+// The app's pages, to run in the browser: resolved against src/, with the Tauri API stubbed out
+// (design/demo/host.js). The frames pick their window with ?label=.
+const shim = `<base href="../../src/" />
+  <script src="../design/demo/backend.js"></script>
+  <script src="../design/demo/host.js"></script>`;
+for (const [page, from] of [["app.html", "index.html"], ["settings.html", "settings.html"]]) {
+  const html = readFileSync(join("src", from), "utf8").replace(/<meta charset[^>]*>/, (meta) => `${meta}\n  ${shim}`);
+  writeFileSync(join(out, "design/demo", page), html);
+}
 console.log(`Built ${out}/`);
 
 if (!process.argv.includes("--build")) {

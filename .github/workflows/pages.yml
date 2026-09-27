@@ -1,7 +1,7 @@
 name: Site
 
-# Publishes the website (site/) to GitHub Pages. The hero runs the app's real island UI, so the
-# site also ships src/ and the demo pages and GIFs from design/.
+# Publishes the website (site/) to GitHub Pages. The hero runs the app's real taskbar widget and
+# flyout, so the site also ships src/ and the demo pages from design/demo/.
 on:
   push:
     branches: [main]

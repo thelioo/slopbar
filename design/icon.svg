@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!--
+    SlopBar's icon: a bucket of slop, full to the brim and dripping down the front. Flat shapes
+    with soft gradients in the Windows 11 manner; the gray outline keeps it apart from both light
+    and dark taskbars. Render it to PNG and run `pnpm tauri icon` to regenerate src-tauri/icons.
+  -->
+  <defs>
+    <clipPath id="cup"><path d="M36 58 H220 L200 222 Q198 240 180 240 H76 Q58 240 56 222 Z"/></clipPath>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e4e0d8"/>
+    </linearGradient>
+    <linearGradient id="slop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9ad85a"/><stop offset="1" stop-color="#4f9e25"/>
+    </linearGradient>
+  </defs>
+  <!-- Cup, with the slop inside it -->
+  <path d="M36 58 H220 L200 222 Q198 240 180 240 H76 Q58 240 56 222 Z" fill="url(#body)"/>
+  <g clip-path="url(#cup)">
+    <path d="M20 150 Q60 134 100 148 T180 144 T250 140 V250 H20 Z" fill="url(#slop)"/>
+    <!-- Drips running down the front from the rim -->
+    <g fill="#7cc242">
+      <path d="M58 60 H92 V112 Q92 128 75 128 Q58 128 58 112 Z"/>
+      <path d="M112 60 H142 V160 H112 Z"/>
+      <path d="M162 60 H194 V96 Q194 110 178 110 Q162 110 162 96 Z"/>
+    </g>
+  </g>
+  <path d="M36 58 H220 L200 222 Q198 240 180 240 H76 Q58 240 56 222 Z" fill="none" stroke="#8c877e" stroke-width="7" stroke-linejoin="round"/>
+  <!-- Rim, buried in slop -->
+  <rect x="22" y="36" width="212" height="36" rx="18" fill="#7cc242"/>
+  <path d="M42 46 H150" stroke="#c3f08f" stroke-width="7" stroke-linecap="round"/>
+</svg>
