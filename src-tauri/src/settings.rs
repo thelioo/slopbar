@@ -114,6 +114,8 @@ pub struct Settings {
     pub launch_at_login: bool,
     /// Download and install new releases on their own.
     pub auto_update: bool,
+    /// The version that last ran, to tell the user after a silent update.
+    pub last_version: Option<String>,
     /// Display names for accounts, keyed by `provider:slot id`.
     pub aliases: HashMap<String, String>,
     pub balancer: Balancer,
@@ -132,6 +134,7 @@ impl Default for Settings {
             language: "auto".into(),
             launch_at_login: false,
             auto_update: true,
+            last_version: None,
             aliases: HashMap::new(),
             balancer: Balancer::default(),
         }

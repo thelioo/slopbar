@@ -112,7 +112,7 @@ function showToast(text) {
   render(lastSnap);
 }
 
-listen("update-installing", ({ payload: version }) => showToast(t("updating", { v: version })));
+listen("update-installed", ({ payload: version }) => showToast(t("updatedTo", { v: version })));
 
 listen("account-switched", ({ payload: s }) => {
   const name = PROVIDER_NAME[s.provider];

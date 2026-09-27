@@ -22,6 +22,7 @@ const MESSAGES = {
     resetFull: "Full reset", resetSession: "Session reset", resetUsableNow: "usable now", resetExpires: "expires {d}", resetNext: "next in {t}", resetsTitle: "Limit resets",
     resetNextExpires: "next expires {d}",
     sCompact: "Collapsed style", compactNames: "Names", compactMinimal: "Minimal",
+    updatedTo: "Updated to v{v}",
   },
   pt: {
     title: "Uso dos planos", loading: "Carregando…", noAccounts: "Nenhuma conta",
@@ -44,6 +45,7 @@ const MESSAGES = {
     resetFull: "Reset completo", resetSession: "Reset da sessão", resetUsableNow: "utilizável agora", resetExpires: "expira em {d}", resetNext: "próximo em {t}", resetsTitle: "Resets de limite",
     resetNextExpires: "próximo expira em {d}",
     sCompact: "Estilo recolhido", compactNames: "Nomes", compactMinimal: "Minimalista",
+    updatedTo: "Atualizado para a v{v}",
   },
   es: {
     title: "Uso de los planes", loading: "Cargando…", noAccounts: "Sin cuentas",
@@ -66,6 +68,7 @@ const MESSAGES = {
     resetFull: "Reinicio completo", resetSession: "Reinicio de sesión", resetUsableNow: "utilizable ahora", resetExpires: "caduca el {d}", resetNext: "próximo en {t}", resetsTitle: "Reinicios de límite",
     resetNextExpires: "el próximo caduca el {d}",
     sCompact: "Estilo contraído", compactNames: "Nombres", compactMinimal: "Minimalista",
+    updatedTo: "Actualizado a la v{v}",
   },
   fr: {
     title: "Utilisation des forfaits", loading: "Chargement…", noAccounts: "Aucun compte",
@@ -88,6 +91,7 @@ const MESSAGES = {
     resetFull: "Réinitialisation complète", resetSession: "Réinitialisation de session", resetUsableNow: "utilisable maintenant", resetExpires: "expire le {d}", resetNext: "prochaine dans {t}", resetsTitle: "Réinitialisations de limite",
     resetNextExpires: "le prochain expire le {d}",
     sCompact: "Style réduit", compactNames: "Noms", compactMinimal: "Minimaliste",
+    updatedTo: "Mis à jour vers la v{v}",
   },
   de: {
     title: "Plan-Nutzung", loading: "Wird geladen…", noAccounts: "Keine Konten",
@@ -110,6 +114,7 @@ const MESSAGES = {
     resetFull: "Vollständiger Reset", resetSession: "Sitzungs-Reset", resetUsableNow: "jetzt nutzbar", resetExpires: "läuft ab am {d}", resetNext: "nächster in {t}", resetsTitle: "Limit-Resets",
     resetNextExpires: "nächster läuft ab am {d}",
     sCompact: "Eingeklappter Stil", compactNames: "Namen", compactMinimal: "Minimal",
+    updatedTo: "Auf v{v} aktualisiert",
   },
   it: {
     title: "Utilizzo dei piani", loading: "Caricamento…", noAccounts: "Nessun account",
@@ -132,6 +137,7 @@ const MESSAGES = {
     resetFull: "Reset completo", resetSession: "Reset della sessione", resetUsableNow: "utilizzabile ora", resetExpires: "scade il {d}", resetNext: "prossimo tra {t}", resetsTitle: "Reset del limite",
     resetNextExpires: "il prossimo scade il {d}",
     sCompact: "Stile compatto", compactNames: "Nomi", compactMinimal: "Minimale",
+    updatedTo: "Aggiornato alla v{v}",
   },
   ja: {
     title: "プランの使用状況", loading: "読み込み中…", noAccounts: "アカウントなし",
@@ -154,6 +160,7 @@ const MESSAGES = {
     resetFull: "フルリセット", resetSession: "セッションリセット", resetUsableNow: "今すぐ使用可能", resetExpires: "{d} に期限切れ", resetNext: "次回まで {t}", resetsTitle: "上限リセット",
     resetNextExpires: "次は {d} に期限切れ",
     sCompact: "折りたたみ時の表示", compactNames: "名前", compactMinimal: "ミニマル",
+    updatedTo: "v{v} にアップデートしました",
   },
   zh: {
     title: "套餐用量", loading: "加载中…", noAccounts: "没有账户",
@@ -176,6 +183,7 @@ const MESSAGES = {
     resetFull: "完全重置", resetSession: "会话重置", resetUsableNow: "现在可用", resetExpires: "{d} 到期", resetNext: "{t}后可用", resetsTitle: "额度重置",
     resetNextExpires: "最早 {d} 到期",
     sCompact: "收起样式", compactNames: "名称", compactMinimal: "极简",
+    updatedTo: "已更新到 v{v}",
   },
   ko: {
     title: "요금제 사용량", loading: "불러오는 중…", noAccounts: "계정 없음",
@@ -198,6 +206,7 @@ const MESSAGES = {
     resetFull: "전체 초기화", resetSession: "세션 초기화", resetUsableNow: "지금 사용 가능", resetExpires: "{d} 만료", resetNext: "{t} 후 다음", resetsTitle: "한도 초기화",
     resetNextExpires: "다음 만료 {d}",
     sCompact: "접힌 상태 스타일", compactNames: "이름", compactMinimal: "미니멀",
+    updatedTo: "v{v}(으)로 업데이트됨",
   },
   ru: {
     title: "Использование тарифов", loading: "Загрузка…", noAccounts: "Нет аккаунтов",
@@ -220,6 +229,7 @@ const MESSAGES = {
     resetFull: "Полный сброс", resetSession: "Сброс сессии", resetUsableNow: "доступен сейчас", resetExpires: "истекает {d}", resetNext: "следующий через {t}", resetsTitle: "Сбросы лимита",
     resetNextExpires: "ближайший истекает {d}",
     sCompact: "Свёрнутый вид", compactNames: "Названия", compactMinimal: "Минимальный",
+    updatedTo: "Обновлено до v{v}",
   },
 };
 

@@ -48,7 +48,7 @@ The app is at `src-tauri/target/x86_64-pc-windows-msvc/release/usage-bar.exe`.
 
 ## Releases
 
-Every push to `main` builds on GitHub Actions and publishes a release (`v0.1.<run>`) with the installer, the MSI and the standalone `.exe`.
+Every push to `main` builds on GitHub Actions and publishes a release (`v0.1.<run>`) with the installer and the standalone `.exe`. Installed apps update themselves silently in the background.
 
 ## License
 

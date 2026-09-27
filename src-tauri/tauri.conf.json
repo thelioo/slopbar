@@ -90,8 +90,7 @@
   "bundle": {
     "active": true,
     "targets": [
-      "nsis",
-      "msi"
+      "nsis"
     ],
     "icon": [
       "icons/32x32.png",
@@ -99,7 +98,12 @@
       "icons/icon.ico",
       "icons/icon.png"
     ],
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
   },
   "plugins": {
     "updater": {
@@ -108,7 +112,7 @@
         "https://github.com/thelioo/usage-bar/releases/latest/download/latest.json"
       ],
       "windows": {
-        "installMode": "passive"
+        "installMode": "quiet"
       }
     }
   }

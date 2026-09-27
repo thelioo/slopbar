@@ -548,6 +548,23 @@ pub fn run() {
 
             apply_settings(handle);
 
+            // Updates install silently; after one, say so once in the island.
+            let current = app.package_info().version.to_string();
+            let previous = {
+                let state = app.state::<AppState>();
+                let mut s = state.settings.lock().unwrap();
+                let previous = s.last_version.replace(current.clone());
+                let _ = settings::save(&s);
+                previous
+            };
+            if previous.is_some_and(|p| p != current) {
+                let h = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(Duration::from_secs(4)).await;
+                    let _ = h.emit("update-installed", current);
+                });
+            }
+
             let h = handle.clone();
             std::thread::spawn(move || island::track_hover(h));
             let h = handle.clone();
