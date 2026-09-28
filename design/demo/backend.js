@@ -11,6 +11,7 @@ window.slopbar = (() => {
       refresh_minutes: 5, providers: { claude: true, codex: true }, language: "auto",
       launch_at_login: false, auto_update: true, aliases: { "claude:work": "Work", "claude:personal": "Personal" },
       balancer: { claude: { auto: false, threshold: 90 }, codex: { auto: false, threshold: 90 } },
+      notifications: { usage: true, resets: true, switches: true },
     },
     accounts: [
       { id: "work", provider: "claude", email: "you@acme.com", plan: "max", org: "Acme", active: true,
