@@ -1,8 +1,10 @@
 import { MARK } from "./marks.js";
-import { t, translateDom, setLanguage, setSystemLocale, LANGUAGES, resetsIn, resetText } from "./i18n.js";
+import { observeFrontend } from "./diagnostics.js";
+import { t, translateDom, setLanguage, setSystemLocale, LANGUAGES, resetText, errorText, duration, windowLabel, windowResetText, visibleResetWindows } from "./i18n.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
+observeFrontend("settings");
 
 const REFRESH_OPTIONS = [1, 5, 15, 30];
 const PROVIDERS = [["claude", "Claude"], ["codex", "Codex"]];
@@ -11,6 +13,7 @@ const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0
 const color = (p) => (p >= 90 ? "var(--bad)" : p >= 70 ? "var(--warn)" : "var(--ok)");
 
 let settings;
+let updatesEnabled = false;
 let snapshot = { accounts: [] };
 
 // ---------------------------------------------------------------------------------------------
@@ -32,17 +35,23 @@ function hue(id) {
   for (const c of id) h = (h * 31 + c.charCodeAt(0)) % 360;
   return h;
 }
-const peak = (a) => (a.windows.length ? Math.max(...a.windows.map((w) => w.used_percent)) : null);
-
 function accountRow(p, a) {
   const key = `${p}:${a.id}`;
-  const usage = peak(a);
-  // The fullest window is the one that matters; show when it resets.
-  const top = a.windows.reduce((m, w) => (w.used_percent > (m?.used_percent ?? -1) ? w : m), null);
+  // The fullest window is the limit that binds next (and what the balancer compares), so it is
+  // the headline; on a tie prefer the overall weekly window, whose reset lies further out.
+  const top = a.windows.reduce((m, w) => (!m || w.used_percent > m.used_percent
+    || (w.used_percent === m.used_percent && w.kind === "weekly") ? w : m), null);
+  const usage = top?.used_percent ?? null;
+  const timedWindows = visibleResetWindows(a.windows);
   const meter = usage == null
     ? `<div class="meter none"><b>—</b></div>`
-    : `<div class="meter"><b>${Math.round(usage)}%</b><div class="track"><i style="width:${Math.min(100, usage)}%;background:${color(usage)}"></i></div>
-        ${top?.resets_at ? `<small>${esc(resetsIn(top.resets_at))}</small>` : ""}</div>`;
+    : `<div class="meter ${a.stale ? "stale" : ""}" title="${esc(a.windows.map(w => `${windowLabel(w)}: ${w.used_percent}% ${t("used")}${w.resets_at ? ` · ${w.resets_at}` : ""}`).join("\n"))}"><b>${Math.round(usage)}%</b><small class="window-label">${esc(windowLabel(top))} · ${t("used")}</small><div class="track"><i style="width:${Math.min(100, usage)}%;background:${color(usage)}"></i></div>
+        ${a.stale ? `<small>${t("lastReading")}</small>` : ""}</div>`;
+  // A zero-usage session can lack a reset while its weekly window has one.
+  // Never hide that weekly timestamp behind the headline's tie-breaking.
+  const windowResets = timedWindows.length
+    ? `<div class="window-resets">${timedWindows.map(w => `<small class="window-reset" title="${esc(w.resets_at)}">${esc(windowLabel(w))}: ${Math.round(w.used_percent)}% ${t("used")} · ${esc(windowResetText(w, a.stale, a.fetched_at))}</small>`).join("")}</div>`
+    : "";
   const held = a.resets ?? [];
   const total = held.reduce((n, r) => n + r.count, 0);
   const resets = total > 0
@@ -61,6 +70,15 @@ function accountRow(p, a) {
           ${resets}
           <span>${esc(settings.aliases[key] ? a.email ?? "" : a.org ?? "")}</span>
         </small>
+      </div>
+      <div class="monitor-state">
+        ${windowResets}
+        ${a.stale && a.fetched_at ? `<small>${esc(t("lastObserved", { t: duration(Math.max(1, Math.round((Date.now() - new Date(a.fetched_at)) / 60000))) }))}</small>` : ""}
+        ${a.error || a.monitor_error ? `<small>${esc(errorText(p, a.error ?? a.monitor_error))}</small>` : ""}
+        ${!a.monitor_connected || ["monitor_reconnect", "monitor_storage", "monitor_wrong_account", "monitor_network", "monitor_uncertain"].includes(a.monitor_error ?? a.error)
+          ? `<button class="btn" data-monitor="${p}" data-id="${esc(a.id)}">${t(a.monitor_connected ? "monitorReconnect" : "monitorConnect")}</button>`
+          : ""}
+        ${a.monitor_connected ? `<button class="btn" data-disconnect="${p}" data-id="${esc(a.id)}">${t("monitorDisconnect")}</button>` : ""}
       </div>
       ${meter}
       ${a.active
@@ -127,6 +145,27 @@ function renderAccounts() {
 }
 
 $("accounts").addEventListener("click", async (e) => {
+  const disconnect = e.target.closest("[data-disconnect]");
+  if (disconnect) {
+    disconnect.disabled = true;
+    try {
+      const result = await invoke("disconnect_monitoring", { provider: disconnect.dataset.disconnect, id: disconnect.dataset.id });
+      snapshot = result.snapshot; renderAccounts();
+      $("add-hint").textContent = t(result.revoked ? "monitorDisconnected" : "monitorRevokeFailed"); $("add-hint").hidden = false;
+    } catch (err) { alert(errorText("", String(err))); }
+    finally { disconnect.disabled = false; }
+    return;
+  }
+  const monitor = e.target.closest("[data-monitor]");
+  if (monitor) {
+    monitor.disabled = true;
+    try {
+      await invoke("connect_monitoring", { provider: monitor.dataset.monitor, id: monitor.dataset.id });
+      $("add-hint").textContent = t("monitorPending"); $("add-hint").hidden = false;
+    } catch (err) { alert(errorText("", String(err))); }
+    finally { monitor.disabled = false; }
+    return;
+  }
   const add = e.target.closest("[data-add]");
   const remove = e.target.closest("[data-remove]");
   const use = e.target.closest("[data-use]");
@@ -185,6 +224,10 @@ listen("usage-updated", (e) => {
   // Don't rebuild the list under someone typing a nickname.
   if (settings && !document.activeElement?.dataset?.alias) renderAccounts();
 });
+listen("monitoring-login", ({ payload }) => {
+  $("add-hint").textContent = payload.error ? errorText("", payload.error) : t("monitorConnected");
+  $("add-hint").hidden = false;
+});
 listen("account-added", () => { $("add-hint").hidden = true; });
 
 // ---------------------------------------------------------------------------------------------
@@ -205,12 +248,17 @@ async function render() {
   $("claude").checked = settings.providers.claude;
   $("codex").checked = settings.providers.codex;
   $("startup").checked = settings.launch_at_login;
-  $("auto-update").checked = settings.auto_update;
+  $("auto-update").checked = updatesEnabled && settings.auto_update;
+  $("auto-update").disabled = !updatesEnabled;
   for (const kind of ["usage", "resets", "switches"]) $(`notify-${kind}`).checked = settings.notifications[kind];
   const version = await invoke("app_version");
   $("version").textContent = /^\d/.test(version) ? `v${version}` : version;
   $("version-label").textContent = t("versionN", { v: version });
-  if (!$("check-updates").disabled) $("check-updates").textContent = latest ? t("installUpdate") : t("checkUpdates");
+  if (!updatesEnabled) {
+    $("check-updates").disabled = true;
+    $("check-updates").textContent = t("checkUpdates");
+    $("update-status").textContent = t("manualUpdates");
+  } else if (!$("check-updates").disabled) $("check-updates").textContent = latest ? t("installUpdate") : t("checkUpdates");
   renderAccounts();
 }
 
@@ -226,6 +274,15 @@ $("claude").addEventListener("change", (e) => update({ providers: { ...settings.
 $("codex").addEventListener("change", (e) => update({ providers: { ...settings.providers, codex: e.target.checked } }));
 $("startup").addEventListener("change", (e) => update({ launch_at_login: e.target.checked }));
 $("auto-update").addEventListener("change", (e) => update({ auto_update: e.target.checked }));
+$("export-diagnostics").addEventListener("click", async () => {
+  const button = $("export-diagnostics"), status = $("diagnostics-status");
+  button.disabled = true; status.hidden = false; status.textContent = t("diagnosticsExporting");
+  try {
+    const path = await invoke("export_diagnostics");
+    status.textContent = t("diagnosticsSaved", { path });
+  } catch { status.textContent = t("diagnosticsFailed"); }
+  finally { button.disabled = false; }
+});
 for (const kind of ["usage", "resets", "switches"]) {
   $(`notify-${kind}`).addEventListener("change", (e) => update({ notifications: { ...settings.notifications, [kind]: e.target.checked } }));
 }
@@ -282,6 +339,7 @@ window.addEventListener("focus", applyAccent);
 
 try { setSystemLocale(await invoke("system_locale")); } catch {}
 settings = await invoke("get_settings");
+updatesEnabled = await invoke("updates_enabled");
 snapshot = await invoke("get_usage");
 await render();
 let page = "accounts";

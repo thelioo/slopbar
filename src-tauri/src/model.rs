@@ -1,9 +1,9 @@
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::accounts::Provider;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UsageWindow {
     /// "session", "weekly", "weekly_opus", "weekly_sonnet" or "window"; translated by the frontend.
     pub kind: String,
@@ -12,7 +12,7 @@ pub struct UsageWindow {
     pub resets_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AccountUsage {
     /// Vault slot id; stable across token refreshes.
     pub id: String,
@@ -33,10 +33,13 @@ pub struct AccountUsage {
     /// An error code ("token_expired", "token_invalid", "bad_response", "http_<status>")
     /// or a raw network error message.
     pub error: Option<String>,
-    /// The numbers are the last ones known (the saved token can't be used right now); windows
-    /// whose reset time has passed are shown as empty.
+    /// Independent monitoring can need recovery while live CLI usage is fresh.
+    #[serde(default)]
+    pub monitor_error: Option<String>,
+    /// Last observed numbers; never predict a reset without a successful provider response.
     pub stale: bool,
     pub fetched_at: Option<DateTime<Utc>>,
+    pub monitor_connected: bool,
 }
 
 impl AccountUsage {
@@ -47,9 +50,9 @@ impl AccountUsage {
 }
 
 /// A usage-limit reset the account can spend to refill its limits.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ResetGrant {
-    /// "full" (session + weekly) or "session".
+    /// "full", "session", "weekly", or "unknown" when the provider scope is unrecognized.
     pub kind: String,
     /// The provider's own title, when it gives one (e.g. "Full reset").
     pub title: Option<String>,

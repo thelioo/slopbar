@@ -31,6 +31,9 @@ pub fn place(app: &AppHandle) {
         area.size.width as f64,
         area.size.height as f64,
     );
+    // Never taller than the work area: with many accounts the flyout's top (its header and the
+    // first provider) would otherwise sit off-screen. The account list scrolls instead.
+    let height = height.min((ah / scale - 2.0 * MARGIN).max(200.0));
     let (w, h, margin) = (WIDTH * scale, height * scale, MARGIN * scale);
     let (anchor_x, anchor_y) = anchor.unwrap_or((ax + aw, ay + ah));
 
