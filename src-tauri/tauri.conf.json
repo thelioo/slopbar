@@ -44,6 +44,26 @@
         }
       },
       {
+        "label": "switcher",
+        "title": "SlopBar",
+        "url": "switcher.html",
+        "width": 440,
+        "height": 360,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": true,
+        "resizable": false,
+        "skipTaskbar": true,
+        "alwaysOnTop": true,
+        "center": true,
+        "windowEffects": {
+          "effects": [
+            "acrylic"
+          ]
+        }
+      },
+      {
         "label": "settings",
         "title": "SlopBar",
         "url": "settings.html",
