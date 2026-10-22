@@ -19,6 +19,7 @@ pub struct UpdateInfo {
 }
 
 pub async fn check(app: &AppHandle) -> Result<UpdateInfo, String> {
+    if !cfg!(feature = "upstream-updates") { return Err("Manual updates only in this build".into()); }
     let current = app.package_info().version.to_string();
     let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
     Ok(UpdateInfo { current, latest: update.map(|u| u.version) })
@@ -26,6 +27,7 @@ pub async fn check(app: &AppHandle) -> Result<UpdateInfo, String> {
 
 /// Downloads and installs the newest release, then restarts into it.
 pub async fn install(app: &AppHandle) -> Result<(), String> {
+    if !cfg!(feature = "upstream-updates") { return Err("Manual updates only in this build".into()); }
     let Some(update) = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())? else {
         return Ok(());
     };
