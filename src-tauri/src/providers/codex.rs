@@ -7,6 +7,8 @@ use crate::model::{ResetGrant, UsageWindow};
 
 #[derive(Deserialize)]
 struct Usage {
+    /// "plus", "prolite" (Pro 100), "pro" (Pro 200), "promax" (Pro 500), "team", ...
+    plan_type: Option<String>,
     rate_limit: Option<RateLimit>,
     credits: Option<Credits>,
     rate_limit_reset_credits: Option<ResetCredits>,
@@ -44,6 +46,38 @@ pub struct CodexUsage {
     pub windows: Vec<UsageWindow>,
     pub credits: Option<String>,
     pub resets: Vec<ResetGrant>,
+    pub billing: Option<crate::model::BillingHints>,
+}
+
+/// The plan's billing from ChatGPT's account record: the next charge, a cancellation's end, and
+/// whether it renews. Only dates, flags and the period are kept; ids and offers are ignored.
+pub(crate) fn billing(raw: &serde_json::Value, account_id: Option<&str>) -> Option<crate::model::BillingHints> {
+    let accounts = &raw["accounts"];
+    let a = account_id.map(|id| &accounts[id]).filter(|a| a.is_object()).unwrap_or(&accounts["default"]);
+    if !a.is_object() { return None; }
+    let e = &a["entitlement"];
+    let last = &a["last_active_subscription"];
+    let date = |v: &serde_json::Value| v.as_str().and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|t| t.with_timezone(&Utc));
+    let cancelling = !last["cancellation_outcome"].is_null();
+    Some(crate::model::BillingHints {
+        renews_at: date(&e["renews_at"]),
+        cancels_at: date(&e["cancels_at"]),
+        active_until: date(&e["expires_at"]),
+        will_renew: last["will_renew"].as_bool().map(|w| w && !cancelling),
+        delinquent: e["is_delinquent"].as_bool(),
+        billing_period: e["billing_period"].as_str().map(String::from),
+        plan_code: e["subscription_plan"].as_str().filter(|s| !s.is_empty()).map(String::from),
+
+        fetched_at: Some(Utc::now()),
+        ..Default::default()
+    })
+}
+
+async fn account_record(client: &reqwest::Client, token: &str, account_id: Option<&str>) -> Option<crate::model::BillingHints> {
+    let mut req = client.get("https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27").bearer_auth(token).header("User-Agent", "codex-cli");
+    if let Some(id) = account_id { req = req.header("ChatGPT-Account-Id", id); }
+    let raw: serde_json::Value = req.send().await.ok()?.error_for_status().ok()?.json().await.ok()?;
+    billing(&raw, account_id)
 }
 
 #[derive(Deserialize)]
@@ -60,7 +94,7 @@ struct Credit {
 }
 
 /// Fetches the usage windows, or an error code (see `model::AccountUsage::error`).
-pub async fn fetch(client: &reqwest::Client, token: &str, account_id: Option<&str>) -> Result<CodexUsage, String> {
+pub async fn fetch(client: &reqwest::Client, token: &str, account_id: Option<&str>, observe: &super::evidence::Observer<'_>) -> Result<CodexUsage, String> {
     let mut req = client
         .get("https://chatgpt.com/backend-api/wham/usage")
         .bearer_auth(token)
@@ -69,7 +103,7 @@ pub async fn fetch(client: &reqwest::Client, token: &str, account_id: Option<&st
         req = req.header("ChatGPT-Account-Id", id);
     }
     let resp = req.send().await.map_err(|e| e.to_string())?;
-    if resp.status() == 401 || resp.status() == 403 {
+    if resp.status() == 401 {
         return Err("token_invalid".into());
     }
     if resp.status() == 429 {
@@ -78,7 +112,14 @@ pub async fn fetch(client: &reqwest::Client, token: &str, account_id: Option<&st
     if !resp.status().is_success() {
         return Err(format!("http_{}", resp.status().as_u16()));
     }
-    let usage: Usage = resp.json().await.map_err(|_| "bad_response".to_string())?;
+    let status = resp.status().as_u16();
+    let raw: serde_json::Value = match resp.json().await {
+        Ok(raw) => raw,
+        Err(_) => { observe(super::evidence::Evidence::outcome(super::evidence::Endpoint::CodexUsage, Some(status))); return Err("bad_response".into()); }
+    };
+    observe(super::evidence::capture(super::evidence::Endpoint::CodexUsage, status, &raw));
+    let usage: Usage = serde_json::from_value(raw).map_err(|_| "bad_response".to_string())?;
+    let plan_type = usage.plan_type.clone().filter(|p| !p.is_empty());
     let windows = usage
         .rate_limit
         .map(|rl| {
@@ -108,9 +149,9 @@ pub async fn fetch(client: &reqwest::Client, token: &str, account_id: Option<&st
     let available = counts.as_ref().and_then(|r| r.available_count).unwrap_or(0);
     let usable_now = counts.as_ref().and_then(|r| r.applicable_available_count).unwrap_or(0) > 0;
     let resets = if available > 0 {
-        list_resets(client, token, account_id, usable_now).await.unwrap_or_else(|| {
+        list_resets(client, token, account_id, usable_now, observe).await.unwrap_or_else(|| {
             vec![ResetGrant {
-                kind: "full".into(),
+                kind: "unknown".into(),
                 title: None,
                 count: available,
                 usable: usable_now,
@@ -121,7 +162,16 @@ pub async fn fetch(client: &reqwest::Client, token: &str, account_id: Option<&st
     } else {
         vec![]
     };
-    Ok(CodexUsage { windows, credits, resets })
+    // Billing changes about once a month; read it a couple of times a day at most.
+    let mut billing = match account_id {
+        Some(id) if super::billing_due(&format!("codex:{id}")) => account_record(client, token, account_id).await,
+        _ => None,
+    };
+    // The plan type comes with every usage reading, so it is always current.
+    if plan_type.is_some() {
+        billing.get_or_insert_with(Default::default).plan_type = plan_type;
+    }
+    Ok(CodexUsage { windows, credits, resets, billing })
 }
 
 /// Details of the account's reset credits: title and expiry of each available one.
@@ -130,6 +180,7 @@ async fn list_resets(
     token: &str,
     account_id: Option<&str>,
     usable: bool,
+    observe: &super::evidence::Observer<'_>,
 ) -> Option<Vec<ResetGrant>> {
     let mut req = client
         .get("https://chatgpt.com/backend-api/wham/rate-limit-reset-credits")
@@ -138,21 +189,46 @@ async fn list_resets(
     if let Some(id) = account_id {
         req = req.header("ChatGPT-Account-Id", id);
     }
-    let list: CreditList = req.send().await.ok()?.error_for_status().ok()?.json().await.ok()?;
-    Some(
+    let resp = match req.send().await {
+        Ok(resp) => resp,
+        Err(_) => { observe(super::evidence::Evidence::outcome(super::evidence::Endpoint::CodexResetDetails, None)); return None; }
+    };
+    let status = resp.status().as_u16();
+    if !resp.status().is_success() {
+        observe(super::evidence::Evidence::outcome(super::evidence::Endpoint::CodexResetDetails, Some(status)));
+        return None;
+    }
+    let raw: serde_json::Value = match resp.json().await {
+        Ok(raw) => raw,
+        Err(_) => { observe(super::evidence::Evidence::outcome(super::evidence::Endpoint::CodexResetDetails, Some(status))); return None; }
+    };
+    observe(super::evidence::capture(super::evidence::Endpoint::CodexResetDetails, status, &raw));
+    let list: CreditList = serde_json::from_value(raw).ok()?;
+    Some(reset_grants(list, usable))
+}
+
+fn reset_grants(list: CreditList, usable: bool) -> Vec<ResetGrant> {
         list.credits
             .into_iter()
             .filter(|c| c.status.as_deref() == Some("available"))
             .map(|c| ResetGrant {
-                kind: if c.reset_type.as_deref().is_some_and(|t| t.contains("session")) { "session" } else { "full" }.into(),
+                kind: reset_kind(c.reset_type.as_deref()).into(),
                 title: c.title,
                 count: 1,
                 usable,
                 expires_at: c.expires_at,
                 next_available_at: None,
             })
-            .collect(),
-    )
+            .collect()
+}
+
+fn reset_kind(kind: Option<&str>) -> &'static str {
+    match kind {
+        Some("session" | "five_hour") => "session",
+        Some("weekly" | "seven_day") => "weekly",
+        Some("full") => "full",
+        _ => "unknown",
+    }
 }
 
 fn window_kind(seconds: Option<i64>) -> &'static str {
@@ -160,5 +236,33 @@ fn window_kind(seconds: Option<i64>) -> &'static str {
         Some(18_000) => "session",
         Some(604_800) => "weekly",
         _ => "window",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn available_resets_with_unrecognized_types_keep_counts_not_assumed_scope() {
+        let raw: serde_json::Value = serde_json::from_str(include_str!("fixtures/usage-divergence.json")).unwrap();
+        let list: CreditList = serde_json::from_value(raw["codex_reset_details"].clone()).unwrap();
+        let grants = reset_grants(list, true);
+        assert_eq!(grants.iter().map(|r| r.count).sum::<u32>(), 2);
+        assert!(grants.iter().all(|r| r.kind == "unknown" && r.usable && r.expires_at.is_some()));
+        let usage: Usage = serde_json::from_value(raw["codex_usage"].clone()).unwrap();
+        let counts = usage.rate_limit_reset_credits.unwrap();
+        assert_eq!(counts.available_count, Some(2));
+        assert_eq!(counts.applicable_available_count, Some(2));
+        assert_eq!(usage.rate_limit.unwrap().primary_window.unwrap().used_percent, 100.0);
+    }
+
+    #[test]
+    fn only_explicit_reset_scopes_are_recognized() {
+        assert_eq!(reset_kind(Some("full")), "full");
+        assert_eq!(reset_kind(Some("five_hour")), "session");
+        assert_eq!(reset_kind(Some("seven_day")), "weekly");
+        assert_eq!(reset_kind(None), "unknown");
+        assert_eq!(reset_kind(Some("not_a_session_reset")), "unknown");
     }
 }
