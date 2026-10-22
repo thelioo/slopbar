@@ -1,9 +1,10 @@
 //! The taskbar widget: laid over the Windows taskbar, just left of the notification area, so it
 //! looks and behaves like a built-in tray item.
 
+use std::sync::Mutex;
 use std::time::Duration;
 
-use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 use crate::AppState;
 
@@ -27,10 +28,11 @@ impl Rect {
 #[cfg(windows)]
 mod win {
     use super::Rect;
+    use std::sync::atomic::{AtomicIsize, Ordering};
     use windows_sys::Win32::Foundation::{HWND, RECT};
     use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        FindWindowExW, FindWindowW, GetClassNameW, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect,
+        FindWindowExW, FindWindowW, GetClassNameW, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect, IsWindow,
         IsWindowVisible, SetWindowLongPtrW, SetWindowPos, GWLP_HWNDPARENT, HWND_TOPMOST, SWP_NOACTIVATE,
         SWP_NOMOVE, SWP_NOSIZE,
     };
@@ -41,7 +43,7 @@ mod win {
     /// calendar, Start) are separate windows and still cover it, as they should.
     pub fn own_by_taskbar(hwnd: HWND) -> bool {
         unsafe {
-            let bar = FindWindowW(wide("Shell_TrayWnd").as_ptr(), std::ptr::null());
+            let bar = bar();
             if bar.is_null() {
                 return false;
             }
@@ -70,6 +72,15 @@ mod win {
 
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(Some(0)).collect()
+    }
+
+    /// The window's outer rect, whether it is visible, and its scale (DPI / 96), straight from
+    /// Windows: no round trip through the event loop, unlike Tauri's getters.
+    pub fn window_state(hwnd: HWND) -> Option<(Rect, bool, f64)> {
+        use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
+        let rect = rect_of(hwnd)?;
+        let dpi = unsafe { GetDpiForWindow(hwnd) };
+        Some((rect, unsafe { IsWindowVisible(hwnd) } != 0, if dpi == 0 { 1.0 } else { dpi as f64 / 96.0 }))
     }
 
     fn rect_of(hwnd: HWND) -> Option<Rect> {
@@ -119,16 +130,128 @@ mod win {
         }
     }
 
+    /// The primary taskbar and its notification area, found once and kept while they exist
+    /// (Explorer restarting makes new ones): finding them is the costly part of each look.
+    static BAR: AtomicIsize = AtomicIsize::new(0);
+    static TRAY: AtomicIsize = AtomicIsize::new(0);
+
+    /// `cache`'s window if it still exists, else `find()`'s (kept for next time).
+    fn kept(cache: &AtomicIsize, find: impl FnOnce() -> HWND) -> HWND {
+        let known = cache.load(Ordering::Relaxed) as HWND;
+        if !known.is_null() && unsafe { IsWindow(known) } != 0 {
+            return known;
+        }
+        let found = find();
+        cache.store(found as isize, Ordering::Relaxed);
+        found
+    }
+
+    fn bar() -> HWND {
+        kept(&BAR, || unsafe { FindWindowW(wide("Shell_TrayWnd").as_ptr(), std::ptr::null()) })
+    }
+
     /// (taskbar, notification area) of the primary taskbar, if it is showing.
     pub fn taskbar() -> Option<(Rect, Rect)> {
         unsafe {
-            let bar = FindWindowW(wide("Shell_TrayWnd").as_ptr(), std::ptr::null());
+            let bar = bar();
             if bar.is_null() || IsWindowVisible(bar) == 0 {
                 return None;
             }
-            let tray = FindWindowExW(bar, std::ptr::null_mut(), wide("TrayNotifyWnd").as_ptr(), std::ptr::null());
+            let tray = kept(&TRAY, || FindWindowExW(bar, std::ptr::null_mut(), wide("TrayNotifyWnd").as_ptr(), std::ptr::null()));
             Some((rect_of(bar)?, rect_of(tray)?))
         }
+    }
+
+    pub enum Widgets {
+        /// Turned off, or the taskbar isn't there to ask.
+        Off,
+        /// There, but the taskbar is slid away (auto-hide); it comes back where it was.
+        Hidden,
+        At(Rect),
+    }
+
+    /// Where the taskbar's Widgets (weather) button is. It is drawn inside the taskbar and has
+    /// no window of its own, so only UI Automation can see it. The caller's thread must have
+    /// initialized COM. Finding the button takes Explorer a tenth of a second, so the element
+    /// found is kept and only its place is read again, until reading it fails (Explorer
+    /// restarted, the button was turned off) or `search` asks to look again.
+    pub fn widgets_button(search: bool) -> Widgets {
+        use std::mem::ManuallyDrop;
+        use windows::core::BSTR;
+        use windows::Win32::Foundation::HWND as Hwnd;
+        use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
+        use windows::Win32::System::Variant::{VariantClear, VARIANT, VARIANT_0, VARIANT_0_0, VARIANT_0_0_0, VT_BSTR};
+        use windows::Win32::UI::Accessibility::{
+            CUIAutomation, IUIAutomation, IUIAutomationElement, TreeScope_Children, UIA_AutomationIdPropertyId,
+            UIA_ClassNamePropertyId, UIA_PROPERTY_ID,
+        };
+        thread_local! {
+            static UIA: Option<IUIAutomation> =
+                unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok() };
+            static BUTTON: std::cell::RefCell<Option<IUIAutomationElement>> = const { std::cell::RefCell::new(None) };
+        }
+        unsafe fn read(button: &IUIAutomationElement) -> Option<Widgets> {
+            if button.CurrentIsOffscreen().ok()?.as_bool() {
+                return Some(Widgets::Hidden);
+            }
+            let r = button.CurrentBoundingRectangle().ok()?;
+            Some(if r.right > r.left { Widgets::At(Rect { left: r.left, top: r.top, right: r.right, bottom: r.bottom }) } else { Widgets::Off })
+        }
+        if !search {
+            let known = BUTTON.with(|b| b.borrow().as_ref().map(|button| unsafe { read(button) }));
+            match known {
+                Some(Some(found)) => return found,
+                // Gone: search again below.
+                Some(None) => BUTTON.with(|b| *b.borrow_mut() = None),
+                // The last search found none.
+                None => return Widgets::Off,
+            }
+        }
+        /// The child of `parent` whose `property` is `value`. Children only: a deeper search
+        /// from the taskbar would also walk our own widget, and a UI Automation client walking a
+        /// WebView2 makes it build its whole accessibility tree.
+        unsafe fn child(
+            uia: &IUIAutomation,
+            parent: &IUIAutomationElement,
+            property: UIA_PROPERTY_ID,
+            value: &str,
+        ) -> Option<IUIAutomationElement> {
+            let mut v = VARIANT {
+                Anonymous: VARIANT_0 {
+                    Anonymous: ManuallyDrop::new(VARIANT_0_0 {
+                        vt: VT_BSTR,
+                        Anonymous: VARIANT_0_0_0 { bstrVal: ManuallyDrop::new(BSTR::from(value)) },
+                        ..Default::default()
+                    }),
+                },
+            };
+            let cond = uia.CreatePropertyCondition(property, &v);
+            let _ = VariantClear(&mut v);
+            parent.FindFirst(TreeScope_Children, &cond.ok()?).ok()
+        }
+        let bar = bar();
+        if bar.is_null() {
+            return Widgets::Off;
+        }
+        let found = UIA.with(|uia| unsafe {
+            let uia = uia.as_ref()?;
+            let root = uia.ElementFromHandle(Hwnd(bar)).ok()?;
+            let site = child(uia, &root, UIA_ClassNamePropertyId, "Windows.UI.Input.InputSite.WindowClass")?;
+            let frame = child(uia, &site, UIA_AutomationIdPropertyId, "TaskbarFrame")?;
+            let button = child(uia, &frame, UIA_AutomationIdPropertyId, "WidgetsButton")?;
+            let found = read(&button)?;
+            BUTTON.with(|b| *b.borrow_mut() = Some(button));
+            Some(found)
+        });
+        found.unwrap_or_else(|| {
+            BUTTON.with(|b| *b.borrow_mut() = None);
+            Widgets::Off
+        })
+    }
+
+    pub fn init_com() {
+        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+        let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
     }
 
     /// If the taskbar sits above `hwnd` in the z-order, moves `hwnd` to just above the taskbar
@@ -138,7 +261,7 @@ mod win {
     pub fn stay_above_taskbar(hwnd: HWND) -> bool {
         use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindow, GW_HWNDPREV};
         unsafe {
-            let bar = FindWindowW(wide("Shell_TrayWnd").as_ptr(), std::ptr::null());
+            let bar = bar();
             if bar.is_null() {
                 return false;
             }
@@ -246,6 +369,17 @@ mod win {
     pub fn fullscreen_monitor() -> Option<Rect> {
         None
     }
+    pub enum Widgets {
+        Off,
+        #[allow(dead_code)]
+        Hidden,
+        #[allow(dead_code)]
+        At(Rect),
+    }
+    pub fn widgets_button(_: bool) -> Widgets {
+        Widgets::Off
+    }
+    pub fn init_com() {}
     pub fn own_by_taskbar(_: ()) -> bool {
         false
     }
@@ -269,6 +403,11 @@ pub fn is_windows_11() -> bool {
     win::is_windows_11()
 }
 
+/// Whether a fullscreen app (video, game, presentation) is in front.
+pub fn fullscreen() -> bool {
+    win::fullscreen_monitor().is_some()
+}
+
 /// The system accent palette: eight RGBA entries from lightest to darkest.
 pub fn accent_palette() -> Option<[u8; 32]> {
     win::accent_palette()
@@ -278,56 +417,170 @@ fn window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(LABEL)
 }
 
-/// Docks the widget over the taskbar, left of the notification area. `raise` brings it back
-/// above the taskbar (only needed when the taskbar has just been activated).
-fn place_docked(app: &AppHandle, win: &WebviewWindow, raise: bool) -> bool {
-    let Some((bar, tray)) = win::taskbar() else { return false };
-    let scale = win.scale_factor().unwrap_or(1.0);
-    let width = (*app.state::<AppState>().dock_width.lock().unwrap() * scale).ceil() as i32;
+/// The taskbar's Widgets button, as last seen by `watch_widgets`.
+static WIDGETS: Mutex<Option<Rect>> = Mutex::new(None);
+
+/// How often the Widgets button's place is read again (cheap: the button is already found).
+const WIDGETS_EVERY: Duration = Duration::from_secs(2);
+/// How often the button is searched for afresh when the taskbar has not changed.
+const WIDGETS_SEARCH_EVERY: Duration = Duration::from_secs(60);
+/// How often the docking loop looks at the widget and the taskbar.
+const DOCK_TICK: Duration = Duration::from_millis(100);
+/// How often (in docking ticks) the taskbar's theme is read: every two seconds.
+const THEME_TICKS: u32 = 20;
+
+/// Searches for the Widgets button as soon as the taskbar or the notification area moves or
+/// resizes (`changed`), and every `WIDGETS_SEARCH_EVERY` otherwise; in between it rereads the
+/// found button's place every `WIDGETS_EVERY`, since it also moves when the weather text
+/// changes length. A thread of its own, because UI Automation asks Explorer, which can be slow
+/// to answer (and costs it work), and docking must never wait on it.
+fn watch_widgets(changed: std::sync::mpsc::Receiver<()>) {
+    win::init_com();
+    let mut search = true;
+    let mut searched = std::time::Instant::now();
+    loop {
+        if search {
+            searched = std::time::Instant::now();
+        }
+        match win::widgets_button(search) {
+            win::Widgets::Off => *WIDGETS.lock().unwrap() = None,
+            win::Widgets::At(rect) => *WIDGETS.lock().unwrap() = Some(rect),
+            // Keep the last place, so the widget doesn't land on the weather as the taskbar
+            // slides back in.
+            win::Widgets::Hidden => {}
+        }
+        search = match changed.recv_timeout(WIDGETS_EVERY) {
+            // A burst of changes (the taskbar sliding in) is one search.
+            Ok(()) => {
+                while changed.try_recv().is_ok() {}
+                true
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => searched.elapsed() >= WIDGETS_SEARCH_EVERY,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+        };
+    }
+}
+
+/// Left edge of a widget `width` wide, docked against the notification area. With the taskbar
+/// left-aligned, Windows 11 puts the Widgets (weather) button there too; the widget then sits
+/// left of it instead of on top of it. Centered, that button is at the far left, out of the way.
+pub fn dock_left(bar: Rect, tray: Rect, widgets: Option<Rect>, width: i32) -> i32 {
+    let mut right = tray.left;
+    if let Some(w) = widgets {
+        let on_bar = w.top < bar.bottom && w.bottom > bar.top;
+        if on_bar && w.left < right && w.right > right - width - GAP {
+            right = w.left;
+        }
+    }
+    right - width - GAP
+}
+
+/// What docking needs to know of the widget's window.
+struct Frame {
+    pos: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    visible: bool,
+    scale: f64,
+}
+
+/// The widget window's handle, read once: it lives as long as the app.
+#[cfg(windows)]
+fn handle(win: &WebviewWindow) -> Option<isize> {
+    win.hwnd().ok().map(|h| h.0 as isize)
+}
+#[cfg(not(windows))]
+fn handle(_: &WebviewWindow) -> Option<isize> {
+    Some(0)
+}
+
+/// Read straight from Windows: each of Tauri's getters is a round trip through the event loop,
+/// which ten times a second kept the main thread busy.
+#[cfg(windows)]
+fn frame(_: &WebviewWindow, hwnd: isize) -> Option<Frame> {
+    let (r, visible, scale) = win::window_state(hwnd as _)?;
+    Some(Frame {
+        pos: PhysicalPosition::new(r.left, r.top),
+        size: PhysicalSize::new((r.right - r.left).max(0) as u32, (r.bottom - r.top).max(0) as u32),
+        visible,
+        scale,
+    })
+}
+#[cfg(not(windows))]
+fn frame(win: &WebviewWindow, _: isize) -> Option<Frame> {
+    Some(Frame { pos: win.outer_position().ok()?, size: win.outer_size().ok()?, visible: win.is_visible().ok()?, scale: win.scale_factor().ok()? })
+}
+
+/// Docks the widget over `taskbar` (bar, notification area), left of the notification area.
+/// `raise` brings it back above the taskbar (only needed when the taskbar has just been
+/// activated). Moves or resizes the window only when it is not where it belongs already.
+fn place_docked(app: &AppHandle, win: &WebviewWindow, hwnd: isize, frame: &Frame, taskbar: Option<(Rect, Rect)>, raise: bool) -> bool {
+    let Some((bar, tray)) = taskbar else { return false };
+    let width = (*app.state::<AppState>().dock_width.lock().unwrap() * frame.scale).ceil() as i32;
     let height = bar.bottom - bar.top;
-    let pos = PhysicalPosition::new(tray.left - width - GAP, bar.top);
+    let widgets = *WIDGETS.lock().unwrap();
+    let pos = PhysicalPosition::new(dock_left(bar, tray, widgets, width), bar.top);
     let size = PhysicalSize::new(width as u32, height as u32);
-    if win.outer_position().ok() != Some(pos) {
+    if frame.pos != pos {
         let _ = win.set_position(pos);
     }
-    if win.outer_size().ok() != Some(size) {
+    if frame.size != size {
         let _ = win.set_size(size);
     }
     #[cfg(windows)]
-    if let Ok(hwnd) = win.hwnd() {
+    {
         // Owned by the taskbar, the widget stays above it on its own; raising by hand is only
         // a fallback (it lags a tick behind and flickers when the tray is toggled quickly).
-        let owned = win::own_by_taskbar(hwnd.0 as _);
+        let owned = win::own_by_taskbar(hwnd as _);
         if raise && !owned {
-            win::raise(hwnd.0 as _);
+            win::raise(hwnd as _);
         }
-        win::stay_above_taskbar(hwnd.0 as _);
+        win::stay_above_taskbar(hwnd as _);
     }
     #[cfg(not(windows))]
-    let _ = raise;
+    let _ = (raise, hwnd);
     true
 }
 
-/// Keeps the docked widget glued to the taskbar (it moves, resizes, and fights for z-order).
+/// Keeps the docked widget glued to the taskbar (it moves, resizes, and fights for z-order),
+/// and tells the windows when the taskbar's theme changes (`taskbar-theme`).
 pub fn keep_docked(app: AppHandle) {
+    let (changed, watch) = std::sync::mpsc::channel();
+    std::thread::spawn(move || watch_widgets(watch));
+    let mut hwnd = None;
+    let mut last_taskbar = None;
+    let mut light = taskbar_is_light();
+    let mut ticks = 0u32;
     loop {
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(DOCK_TICK);
         let Some(win) = window(&app) else { continue };
-        let covered = match (win::fullscreen_monitor(), win::taskbar()) {
+        let Some(h) = hwnd.or_else(|| handle(&win)) else { continue };
+        hwnd = Some(h);
+        let Some(frame) = frame(&win, h) else { continue };
+        ticks = ticks.wrapping_add(1);
+        if ticks % THEME_TICKS == 0 && taskbar_is_light() != light {
+            light = !light;
+            let _ = app.emit("taskbar-theme", if light { "light" } else { "dark" });
+        }
+        let taskbar = win::taskbar();
+        if taskbar != last_taskbar {
+            last_taskbar = taskbar;
+            let _ = changed.send(());
+        }
+        let covered = match (win::fullscreen_monitor(), taskbar) {
             (Some(fs), Some((bar, _))) => fs.contains(((bar.left + bar.right) / 2) as f64, bar.top as f64 - 1.0),
             _ => false,
         };
         if covered {
-            if win.is_visible().unwrap_or(false) {
+            if frame.visible {
                 let _ = win.hide();
             }
             continue;
         }
-        if place_docked(&app, &win, win::taskbar_focused()) {
-            if !win.is_visible().unwrap_or(false) {
+        if place_docked(&app, &win, h, &frame, taskbar, win::taskbar_focused()) {
+            if !frame.visible {
                 let _ = win.show();
             }
-        } else if win.is_visible().unwrap_or(false) {
+        } else if frame.visible {
             // Taskbar hidden (auto-hide or a fullscreen app).
             let _ = win.hide();
         }
@@ -335,10 +588,11 @@ pub fn keep_docked(app: AppHandle) {
 }
 
 pub fn show_docked(app: &AppHandle) {
-    if let Some(win) = window(app) {
-        if place_docked(app, &win, true) {
-            let _ = win.show();
-        }
+    let Some(win) = window(app) else { return };
+    let Some(h) = handle(&win) else { return };
+    let Some(frame) = frame(&win, h) else { return };
+    if place_docked(app, &win, h, &frame, win::taskbar(), true) {
+        let _ = win.show();
     }
 }
 
@@ -357,3 +611,48 @@ pub fn exclude_from_peek(window: &WebviewWindow) {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Measured on a 3840-wide taskbar with the weather showing next to the tray.
+    const BAR: Rect = Rect { left: 0, top: 2328, right: 3840, bottom: 2400 };
+    const TRAY: Rect = Rect { left: 3279, top: 2328, right: 3840, bottom: 2400 };
+
+    #[test]
+    fn docks_against_the_tray_without_widgets() {
+        assert_eq!(dock_left(BAR, TRAY, None, 98), 3279 - 98 - GAP);
+    }
+
+    #[test]
+    fn steps_left_of_the_weather_next_to_the_tray() {
+        let weather = Rect { left: 3033, top: 2328, right: 3261, bottom: 2400 };
+        assert_eq!(dock_left(BAR, TRAY, Some(weather), 98), 3033 - 98 - GAP);
+    }
+
+    #[test]
+    fn ignores_widgets_at_the_far_left_of_a_centered_taskbar() {
+        let weather = Rect { left: 0, top: 2328, right: 228, bottom: 2400 };
+        assert_eq!(dock_left(BAR, TRAY, Some(weather), 98), 3279 - 98 - GAP);
+    }
+
+    #[test]
+    fn steps_left_of_widgets_that_only_reach_into_its_spot() {
+        let weather = Rect { left: 3000, top: 2328, right: 3180, bottom: 2400 };
+        assert_eq!(dock_left(BAR, TRAY, Some(weather), 98), 3000 - 98 - GAP);
+    }
+
+    #[test]
+    fn stays_by_the_tray_when_widgets_leave_room() {
+        let weather = Rect { left: 2900, top: 2328, right: 3177, bottom: 2400 };
+        assert_eq!(dock_left(BAR, TRAY, Some(weather), 98), 3279 - 98 - GAP);
+    }
+
+    #[test]
+    fn ignores_widgets_on_another_taskbar() {
+        let elsewhere = Rect { left: 3033, top: 1000, right: 3261, bottom: 1072 };
+        assert_eq!(dock_left(BAR, TRAY, Some(elsewhere), 98), 3279 - 98 - GAP);
+    }
+}
+
