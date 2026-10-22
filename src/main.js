@@ -1,6 +1,7 @@
-import { t, resetsIn, windowLabel, errorText, creditsText, time, translateDom, setLanguage, setSystemLocale, duration, resetText, groupResets } from "./i18n.js";
+import { t, windowResetText, windowLabel, errorText, creditsText, time, dayTime, translateDom, setLanguage, setSystemLocale, duration, resetText, groupResets, visibleResetWindows, placesText } from "./i18n.js";
 import { MARK } from "./marks.js";
-import { checkUsage, checkSwitch } from "./alerts.js";
+import { observeFrontend } from "./diagnostics.js";
+import { checkUsage, checkSwitch, checkPlans } from "./alerts.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -14,6 +15,7 @@ const $refresh = document.getElementById("refresh");
 
 // The same page renders the taskbar widget ("dock") and the flyout above it ("panel").
 const IS_DOCK = window.__TAURI__.window.getCurrentWindow().label === "dock";
+observeFrontend(IS_DOCK ? "dock" : "panel");
 document.body.classList.add(IS_DOCK ? "dock" : "panel");
 
 let lastSnap = { accounts: [], updated_at: null };
@@ -36,9 +38,9 @@ const peak = (a) => a.windows.reduce((m, w) => (w.used_percent > (m?.used_percen
 
 /** The usage ring with the provider's mark inside; the name and the number are in the tooltip. */
 const chip = (a) => {
-  const w = peak(a);
-  const tip = w ? `${PROVIDER_NAME[a.provider]} ${Math.round(w.used_percent)}%` : PROVIDER_NAME[a.provider];
-  return `<span class="chip" title="${tip}"><span class="ring-mark">${ring(w?.used_percent ?? 0)}${MARK[a.provider]}</span></span>`;
+  const w = a.stale || a.error ? null : peak(a);
+  const tip = w ? `${PROVIDER_NAME[a.provider]} ${Math.round(w.used_percent)}%` : `${PROVIDER_NAME[a.provider]} — ${t("usageUnknown")}`;
+  return `<span class="chip" title="${esc(tip)}"><span class="ring-mark">${w ? ring(w.used_percent) : '<span class="unknown-mark">?</span>'}${MARK[a.provider]}</span></span>`;
 };
 
 let toast = null;
@@ -85,16 +87,20 @@ function resetLines(a) {
 }
 
 function bars(a) {
+  const resetWindows = new Set(visibleResetWindows(a.windows));
   return a.windows.map((w) => `
     <div class="win">
       <div class="row"><span>${esc(windowLabel(w))}</span><b>${Math.round(w.used_percent)}%</b></div>
       <div class="bar"><div style="width:${Math.min(100, w.used_percent)}%;background:${color(w.used_percent)}"></div></div>
-      ${w.resets_at ? `<div class="reset">${esc(resetsIn(w.resets_at))}</div>` : ""}
+      ${resetWindows.has(w) && !a.stale ? `<div class="reset" title="${esc(w.resets_at)}">${esc(windowResetText(w, false, a.fetched_at))}</div>` : ""}
     </div>`).join("");
 }
 
 /** One section per provider; each account shows its usage, the signed-in one marked "in use". */
 function renderDetails(snap) {
+  const notice = document.getElementById("panel-notice");
+  notice.textContent = toast ?? "";
+  notice.hidden = !toast;
   $updated.textContent = snap.updated_at ? time(snap.updated_at) : "";
   if (!snap.accounts.length) {
     $accounts.innerHTML = `<p class="empty">${snap.updated_at ? t("noCredentials") : t("searching")}</p>`;
@@ -105,25 +111,33 @@ function renderDetails(snap) {
     .filter(([, list]) => list.length);
   patch($accounts, groups.map(([provider, list]) => `
     <section>
-      <div class="acc-head"><span class="name">${PROVIDER_NAME[provider]}</span></div>
+      <div class="acc-head"><span class="logo ${provider}">${MARK[provider]}</span><span class="name">${PROVIDER_NAME[provider]}</span></div>
       ${list.map((a) => {
         const stale = a.stale && a.fetched_at
-          ? t("staleAgo", { t: duration(Math.max(1, Math.round((Date.now() - new Date(a.fetched_at)) / 60000))) })
+          ? t("lastObserved", { t: duration(Math.max(1, Math.round((Date.now() - new Date(a.fetched_at)) / 60000))) })
           : "";
         // Every row has one detail line, whatever its state, so switching doesn't change heights.
-        const meta = [a.active ? a.sources.join(" + ") : a.alias ? a.email : "", a.org, stale].filter(Boolean).join(" · ") || " ";
+        // Where it's in use: here and on the user's other computers (shared via a synced folder).
+        const places = placesText(a);
+        const meta = [places.inUse || (a.alias ? a.email : ""), ...places.seen, a.used_outside ? t("usedOutside") : "", a.org, stale]
+          .filter(Boolean).join(" · ") || " ";
         return `
         <div class="acct ${a.active ? "active" : ""}" data-key="${provider}:${esc(a.id)}">
           <div class="acct-head">
+            <span class="provider-mark ${provider}" title="${PROVIDER_NAME[provider]}">${MARK[provider]}</span>
             <span class="who">${esc(accountName(a))}</span>
             ${a.plan ? `<span class="plan">${esc(a.plan)}</span>` : ""}
             ${a.active
               ? `<span class="in-use ${a.pending ? "pending" : ""}">${t("inUse")}</span>`
               : `<button class="use" data-provider="${provider}" data-id="${esc(a.id)}">${t("use")}</button>`}
           </div>
-          <div class="acc-meta">${esc(meta)}</div>
-          ${a.error ? `<div class="error">${esc(errorText(PROVIDER_NAME[provider], a.error))}</div>` : ""}
+          <div class="acc-meta" title="${esc([meta, a.used_outside ? t("usedOutsideHint") : ""].filter(Boolean).join("\n"))}">${esc(meta)}</div>
+          ${a.error || a.monitor_error ? `<div class="error">${esc(errorText(PROVIDER_NAME[provider], a.error ?? a.monitor_error))}</div>` : ""}
+          ${!a.monitor_connected || ["monitor_reconnect", "monitor_storage", "monitor_wrong_account", "monitor_network", "monitor_uncertain"].includes(a.monitor_error ?? a.error)
+            ? `<button class="monitor" data-provider="${provider}" data-id="${esc(a.id)}">${t(a.monitor_connected ? "monitorReconnect" : "monitorConnect")}</button>` : ""}
+          ${a.monitor_connected ? `<button class="monitor" data-disconnect="true" data-provider="${provider}" data-id="${esc(a.id)}">${t("monitorDisconnect")}</button>` : ""}
           ${bars(a)}
+          ${a.runs_out_at && !a.stale ? `<div class="reset runs-out" title="${esc(a.runs_out_at)}">${esc(t("runsOut", { at: dayTime(a.runs_out_at) }))}</div>` : ""}
           ${resetLines(a)}
           ${a.credits ? `<div class="reset" style="margin-top:6px">${esc(creditsText(a.credits))}</div>` : ""}
         </div>`;
@@ -152,6 +166,20 @@ function patch(container, html) {
 }
 
 $accounts.addEventListener("click", async (e) => {
+  const monitor = e.target.closest("button.monitor");
+  if (monitor) {
+    monitor.disabled = true;
+    try {
+      const args = { provider: monitor.dataset.provider, id: monitor.dataset.id };
+      if (monitor.dataset.disconnect) {
+        const result = await invoke("disconnect_monitoring", args);
+        render(result.snapshot); showToast(t(result.revoked ? "monitorDisconnected" : "monitorRevokeFailed"));
+      } else { await invoke("connect_monitoring", args); showToast(t("monitorPending")); }
+    }
+    catch (err) { showToast(errorText("", String(err))); }
+    finally { monitor.disabled = false; }
+    return;
+  }
   const button = e.target.closest("button.use");
   if (!button) return;
   const { provider, id } = button.dataset;
@@ -174,12 +202,14 @@ $accounts.addEventListener("click", async (e) => {
 /** Sizes the window to its content: the widget's width, or the flyout's height. */
 function layout() {
   if (IS_DOCK) invoke("set_dock_width", { width: Math.ceil($widget.offsetWidth) });
-  else invoke("set_panel_height", { height: Math.ceil($details.scrollHeight) });
+  // The account list scrolls once the flyout reaches the screen's height (the app caps the
+  // window there), so ask for the height it would need unclipped.
+  else invoke("set_panel_height", { height: Math.ceil($details.scrollHeight - $accounts.clientHeight + $accounts.scrollHeight) });
 }
 
 function render(snap) {
   lastSnap = snap;
-  if (IS_DOCK && notifications && snap.updated_at) checkUsage(snap, notifications);
+  if (IS_DOCK && notifications && snap.updated_at) { checkUsage(snap, notifications); checkPlans(); }
   if (IS_DOCK) renderCompact(snap);
   else renderDetails(snap);
   layout();
@@ -223,6 +253,7 @@ $refresh.addEventListener("click", async () => {
   try { render(await invoke("refresh")); } finally { $refresh.classList.remove("spin"); }
 });
 
+listen("monitoring-login", ({ payload }) => showToast(payload.error ? errorText("", payload.error) : t("monitorConnected")));
 listen("usage-updated", (e) => render(e.payload));
 invoke("get_usage").then(render);
 setInterval(() => invoke("get_usage").then(render), 60_000);
