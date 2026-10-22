@@ -2,6 +2,7 @@
 name = "slopbar"
 version = "0.1.0"
 edition = "2021"
+default-run = "slopbar"
 license = "GPL-3.0-only"
 repository = "https://github.com/thelioo/slopbar"
 
@@ -9,11 +10,27 @@ repository = "https://github.com/thelioo/slopbar"
 name = "slopbar_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+default = ["desktop"]
+desktop = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-autostart", "dep:tauri-plugin-single-instance", "dep:tauri-plugin-updater", "dep:tauri-plugin-notification", "dep:webview2-com", "dep:tauri-winrt-notification"]
+# Local fixes must not silently replace themselves with an upstream release.
+upstream-updates = ["desktop"]
+
+[[bin]]
+name = "slopbar"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+# Agents' stdio MCP server. Separate so app updates never stop an agent's server mid-session.
+[[bin]]
+name = "slopbar-mcp"
+path = "src/bin/slopbar-mcp.rs"
+
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2", features = [], optional = true }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = [], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -22,11 +39,22 @@ dirs = "5"
 futures = "0.3"
 base64 = "0.22"
 sys-locale = "0.3"
-tauri-plugin-autostart = "2"
-tauri-plugin-single-instance = "2"
-tauri-plugin-updater = "2"
-tokio = { version = "1", features = ["time"] }
-tauri-plugin-notification = "2"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+tauri-plugin-autostart = { version = "2", optional = true }
+tauri-plugin-single-instance = { version = "2", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
+tokio = { version = "1", features = ["time", "sync", "rt", "macros", "net", "io-util"] }
+tauri-plugin-notification = { version = "2", optional = true }
+# Read-only view of the Codex CLI's own thread list and rollouts.
+rusqlite = { version = "0.32", features = ["bundled"] }
+zstd = { version = "0.13", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_System_Registry"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_System_Registry", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Pipes"] }
+# UI Automation, to find taskbar items that have no window of their own (the Widgets button).
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant", "Win32_UI_Accessibility", "Win32_UI_Shell"] }
+# The webview Tauri already uses, to read and capture a window for agents without showing it.
+webview2-com = { version = "0.38", optional = true }
+# The toast the notification plugin shows, used directly where a click must open Settings.
+tauri-winrt-notification = { version = "0.8", optional = true }
