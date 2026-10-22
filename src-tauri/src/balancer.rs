@@ -25,17 +25,19 @@ pub fn decide(
         if !rule.auto || last_switch.get(&provider).is_some_and(|t| t.elapsed() < COOLDOWN) {
             continue;
         }
-        let of_provider: Vec<&AccountUsage> = accounts.iter().filter(|a| a.provider == provider).collect();
+        let of_provider: Vec<&AccountUsage> = accounts.iter().filter(|a| a.provider == provider && !a.stale && a.error.is_none()).collect();
         let Some(current) = of_provider.iter().find(|a| a.active) else { continue };
         let threshold = rule.threshold as f64;
         if current.peak().unwrap_or(0.0) < threshold {
             continue;
         }
-        // Known headroom first (least used); accounts never measured come last.
+        // Switch only to measured, current headroom.
         let best = of_provider
             .iter()
             .filter(|a| !a.active)
-            .filter(|a| a.peak().is_none_or(|p| p < threshold - HYSTERESIS))
+            // A plan the user is letting lapse is no target once its last paid day has passed.
+            .filter(|a| !crate::subscriptions::lapsed(settings, provider, &a.id, chrono::Utc::now()))
+            .filter(|a| a.peak().is_some_and(|p| p < threshold - HYSTERESIS))
             .min_by(|a, b| {
                 let key = |x: &AccountUsage| x.peak().unwrap_or(f64::MAX);
                 key(a).total_cmp(&key(b))
@@ -45,4 +47,53 @@ pub fn decide(
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::UsageWindow;
+
+    fn account(id: &str, active: bool, percent: Option<f64>) -> AccountUsage {
+        AccountUsage {
+            id: id.into(), provider: Provider::Claude, email: None, alias: None, plan: None, org: None,
+            active, sources: vec![], windows: percent.map(|used_percent| UsageWindow {
+                kind: "session".into(), window_seconds: None, used_percent, resets_at: None,
+            }).into_iter().collect(), credits: None, resets: vec![], error: None, monitor_error: None, stale: false,
+            fetched_at: Some(chrono::Utc::now()), monitor_connected: true, billing: Default::default(), remote: vec![], used_outside: false, runs_out_at: None, unexpected: None,
+        }
+    }
+
+    #[test]
+    fn automatic_switching_requires_fresh_measured_usage_on_both_accounts() {
+        let mut settings = Settings::default();
+        settings.balancer.claude.auto = true;
+        let current = account("active", true, Some(95.0));
+        let mut target = account("inactive", false, Some(10.0));
+        target.stale = true;
+        assert!(decide(&[current.clone(), target.clone()], &settings, &HashMap::new()).is_empty());
+        target.stale = false;
+        target.error = Some("monitor_network".into());
+        assert!(decide(&[current.clone(), target.clone()], &settings, &HashMap::new()).is_empty());
+        assert!(decide(&[current.clone(), account("unknown", false, None)], &settings, &HashMap::new()).is_empty());
+        target.error = None;
+        // A monitor error must not invalidate a successful live CLI measurement.
+        target.monitor_error = Some("monitor_reconnect".into());
+        assert_eq!(decide(&[current.clone(), target.clone()], &settings, &HashMap::new()), [(Provider::Claude, "inactive".into())]);
+        let mut stale_current = current;
+        stale_current.stale = true;
+        assert!(decide(&[stale_current, target], &settings, &HashMap::new()).is_empty());
+    }
+
+    #[test]
+    fn a_lapsed_plan_is_never_a_switch_target() {
+        let mut settings = Settings::default();
+        settings.balancer.claude.auto = true;
+        let accounts = [account("active", true, Some(95.0)), account("inactive", false, Some(10.0))];
+        let plan = |days: i64| crate::settings::Subscription { cancel_after: Some((chrono::Utc::now() + chrono::Duration::days(days)).date_naive()), ..Default::default() };
+        settings.subscriptions.insert("claude:inactive".into(), plan(3));
+        assert_eq!(decide(&accounts, &settings, &HashMap::new()).len(), 1, "still paid for: use it up");
+        settings.subscriptions.insert("claude:inactive".into(), plan(-1));
+        assert!(decide(&accounts, &settings, &HashMap::new()).is_empty());
+    }
 }

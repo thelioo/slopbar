@@ -38,7 +38,7 @@ impl Provider {
         }
     }
 
-    fn key(self) -> &'static str {
+    pub(crate) fn key(self) -> &'static str {
         match self {
             Provider::Claude => "claude",
             Provider::Codex => "codex",
@@ -73,6 +73,34 @@ impl Slot {
                     tokens["access_token"].as_str()?.to_string(),
                     tokens["account_id"].as_str().map(String::from),
                 ))
+            }
+        }
+    }
+
+    /// Plan and billing facts the saved login carries: Claude's rate-limit tier and account record,
+    /// Codex's subscription claims in its id token. Never a token, email or account id.
+    pub fn billing(&self) -> crate::model::BillingHints {
+        let date = |v: &Value| v.as_str().and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|t| t.with_timezone(&chrono::Utc));
+        let text = |v: &Value| v.as_str().filter(|s| !s.is_empty()).map(String::from);
+        match self.provider {
+            Provider::Claude => {
+                let account = &self.data["oauth_account"];
+                crate::model::BillingHints {
+                    tier: text(&self.data["credentials"]["claudeAiOauth"]["rateLimitTier"]).or_else(|| text(&account["organizationRateLimitTier"])),
+                    billing_type: text(&account["billingType"]),
+                    started_at: date(&account["subscriptionCreatedAt"]),
+                    ..Default::default()
+                }
+            }
+            Provider::Codex => {
+                let claims = self.data["auth"]["tokens"]["id_token"].as_str().and_then(jwt_claims).unwrap_or(Value::Null);
+                let openai = &claims["https://api.openai.com/auth"];
+                crate::model::BillingHints {
+                    started_at: date(&openai["chatgpt_subscription_active_start"]),
+                    active_until: date(&openai["chatgpt_subscription_active_until"]),
+                    checked_at: date(&openai["chatgpt_subscription_last_checked"]),
+                    ..Default::default()
+                }
             }
         }
     }
@@ -388,44 +416,48 @@ fn login_source(provider: Provider, sources: &[Source]) -> Option<&Source> {
 /// Opens a terminal that runs the CLI's own sign-in in an isolated temporary config dir, then
 /// imports the account once the sign-in finishes. The current login is never touched.
 pub fn start_login(provider: Provider, sources: &[Source]) -> Result<LoginJob, String> {
-    let source = login_source(provider, sources).ok_or("CLI not found")?.clone();
-    let name = format!(".slopbar-login-{}", chrono::Utc::now().timestamp_millis());
-    let (var, cmd) = match provider {
-        Provider::Claude => ("CLAUDE_CONFIG_DIR", "claude auth login"),
-        Provider::Codex => ("CODEX_HOME", "codex login"),
-    };
-    let dir = source.home.join(&name);
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    start_login_observed(provider, sources, None)
+}
 
-    // A new console window runs the sign-in; it closes on success and stays open on failure.
-    let mut term = match &source.distro {
-        Some(distro) => {
-            let native = format!("{}/{name}", source.native_home);
-            // -l loads the login profile, where ~/.local/bin (the CLIs' usual home) joins PATH.
-            let script = format!(
-                "{var}='{native}' {cmd} && sleep 1 || {{ echo; read -rp 'Press Enter to close'; }}"
-            );
-            let mut c = std::process::Command::new("wsl.exe");
-            c.args(["-d", distro, "--", "bash", "-lic", &script]);
-            c
-        }
-        None => {
-            let mut c = std::process::Command::new("cmd.exe");
-            c.env(var, &dir).args(["/c", &format!("{cmd} || pause")]);
-            // The app may have been started from a \\wsl.localhost path, which cmd can't use.
-            if let Some(home) = dirs::home_dir() {
-                c.current_dir(home);
-            }
-            c
+pub fn start_login_observed(provider: Provider, sources: &[Source], diagnostics: Option<crate::diagnostics::Context>) -> Result<LoginJob, String> {
+    use crate::diagnostics::LoginStage;
+    let source = login_source(provider, sources);
+    if let Some(d) = &diagnostics { d.login(LoginStage::CliDiscovery, source.is_some(), source.is_some_and(|s| s.distro.is_some()), None, 0); }
+    let source = source.ok_or("CLI not found")?.clone();
+    static LOGIN_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let name = format!(".slopbar-login-{}-{}-{}", std::process::id(), chrono::Utc::now().timestamp_millis(), LOGIN_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    let cmd = crate::login::action(provider, false);
+    let dir = source.home.join(&name);
+    // Never reuse a directory (or a symlink) left by an earlier/crashed sign-in.
+    let made = std::fs::create_dir(&dir);
+    if let Some(d) = &diagnostics { d.login(LoginStage::Directory, made.is_ok(), source.distro.is_some(), None, 0); }
+    made.map_err(|_| "monitor_storage".to_string())?;
+    // Keep an isolated Codex login out of the machine's shared credential-store entry.
+    // A config file also avoids different cmd.exe / bash quoting rules for TOML strings.
+    if provider == Provider::Codex
+        && std::fs::write(dir.join("config.toml"), "cli_auth_credentials_store = \"file\"\n").is_err() {
+        if let Some(d) = &diagnostics { d.login(LoginStage::Prepare, false, source.distro.is_some(), None, 0); }
+        let _ = std::fs::remove_dir_all(&dir);
+        return Err("monitor_storage".into());
+    }
+
+    let prepared = crate::login::prepare(&dir, provider, cmd);
+    if let Some(d) = &diagnostics { d.login(LoginStage::Prepare, prepared.is_ok(), source.distro.is_some(), None, 0); }
+    if prepared.is_err() {
+        let _ = std::fs::remove_dir_all(&dir);
+        return Err("monitor_storage".into());
+    }
+    let native = format!("{}/{name}", source.native_home);
+    let mut term = crate::login::command(provider, &source, &dir, &native, cmd, true);
+    let (child, tree) = match crate::login::ProcessTree::spawn(&mut term, true) {
+        Ok(process) => process,
+        Err(_) => {
+            if let Some(d) = &diagnostics { d.login(LoginStage::ProcessStart, false, source.distro.is_some(), None, 0); }
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err("monitor_login_failed".into());
         }
     };
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
-        term.creation_flags(CREATE_NEW_CONSOLE);
-    }
-    term.spawn().map_err(|e| e.to_string())?;
+    if let Some(d) = &diagnostics { d.login(LoginStage::ProcessStart, true, source.distro.is_some(), None, 0); }
 
     let login = Source {
         label: source.label.clone(),
@@ -435,10 +467,15 @@ pub fn start_login(provider: Provider, sources: &[Source]) -> Result<LoginJob, S
         distro: source.distro.clone(),
         native_home: source.native_home.clone(),
     };
-    Ok(LoginJob { provider, source: login, dir, started: Instant::now() })
+    Ok(LoginJob { provider, source: login, dir, native, started: Instant::now(), child, tree: Some(tree), diagnostics, finished: false })
 }
 
 pub struct LoginJob {
+    diagnostics: Option<crate::diagnostics::Context>,
+    finished: bool,
+    tree: Option<crate::login::ProcessTree>,
+    native: String,
+    child: std::process::Child,
     provider: Provider,
     source: Source,
     dir: PathBuf,
@@ -449,24 +486,71 @@ impl LoginJob {
     /// Polls until the sign-in has produced a login, then imports it and cleans up.
     /// Gives up after 15 minutes (the temp dir is removed either way).
     pub async fn wait(self, client: &reqwest::Client) -> Option<Slot> {
+        let slot = self.wait_isolated(client).await?;
+        let _guard = VAULT.lock().unwrap();
+        save_slot(&slot).ok()?;
+        Some(slot)
+    }
+
+    /// Complete a separate login without ever importing it into the switching vault.
+    pub async fn wait_isolated(mut self, client: &reqwest::Client) -> Option<Slot> {
+        use crate::diagnostics::LoginStage;
         let result = loop {
             if self.started.elapsed() > Duration::from_secs(15 * 60) {
+                self.record_login(LoginStage::Timeout, false, None);
                 break None;
             }
             tokio::time::sleep(Duration::from_secs(2)).await;
-            let Some(mut slot) = read_login(self.provider, &self.source, &[]) else { continue };
-            // Let the CLI finish writing (Claude adds account details right after the tokens).
-            tokio::time::sleep(Duration::from_secs(3)).await;
-            slot = read_login(self.provider, &self.source, &[]).unwrap_or(slot);
-            if slot.provider == Provider::Claude {
-                slot = with_claude_profile(client, slot).await;
+            // Wait for successful CLI exit, not the first partially written credential file.
+            match self.child.try_wait() {
+                Ok(Some(status)) => { self.record_login(LoginStage::ProcessExit, status.success(), status.code()); if !status.success() { break None; } },
+                Ok(None) => continue,
+                _ => { self.record_login(LoginStage::ProcessExit, false, None); break None; },
             }
-            let _guard = VAULT.lock().unwrap();
-            let _ = save_slot(&slot);
+            let slot = read_login(self.provider, &self.source, &[]);
+            self.record_login(LoginStage::Credentials, slot.is_some(), None);
+            let Some(mut slot) = slot else { break None };
+            if slot.provider == Provider::Claude {
+                // A monitor must be bound to the server-verified account, not a config label.
+                let verified = with_claude_profile(client, slot).await;
+                self.record_login(LoginStage::Profile, verified.is_some(), None);
+                let Some(verified) = verified else { break None };
+                slot = verified;
+            }
             break Some(slot);
         };
-        let _ = std::fs::remove_dir_all(&self.dir);
+        // Close the process tree before reading/removing any remaining login state.
+        drop(self.tree.take());
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        // Credentials may reach the vault, main CLI, or monitor only after a
+        // durable handoff marker prevents later cleanup from logging them out.
+        let result = result.filter(|_| {
+            let ok = crate::login::handoff(&self.dir, self.provider).is_ok();
+            self.record_login(LoginStage::Handoff, ok, None); ok
+        });
+        if result.is_none() {
+            let (provider, source, dir, native) = (self.provider, self.source.clone(), self.dir.clone(), self.native.clone());
+            let _ = tokio::task::spawn_blocking(move || crate::login::logout(provider, &source, &dir, &native)).await;
+        }
+        let removed = std::fs::remove_dir_all(&self.dir);
+        self.record_login(LoginStage::FolderCleanup, removed.is_ok(), None);
+        self.finished = true;
         result
+    }
+
+    fn record_login(&self, stage: crate::diagnostics::LoginStage, ok: bool, exit_code: Option<i32>) {
+        if let Some(d) = &self.diagnostics { d.login(stage, ok, self.source.distro.is_some(), exit_code, crate::diagnostics::millis(self.started)); }
+    }
+}
+
+impl Drop for LoginJob {
+    fn drop(&mut self) {
+        if !self.finished { self.record_login(crate::diagnostics::LoginStage::Cancelled, false, None); }
+        drop(self.tree.take());
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        // A cancelled task leaves the marked folder for startup logout/cleanup.
     }
 }
 
@@ -495,10 +579,38 @@ async fn claude_profile(client: &reqwest::Client, token: &str) -> Option<Value> 
 }
 
 /// Replaces a new Claude login's identity with the profile API's answer.
-async fn with_claude_profile(client: &reqwest::Client, slot: Slot) -> Slot {
-    let Some((token, _)) = slot.access() else { return slot };
-    match claude_profile(client, &token).await {
-        Some(account) => claude_slot(slot.data["credentials"].clone(), Some(account)).unwrap_or(slot),
-        None => slot,
+async fn with_claude_profile(client: &reqwest::Client, slot: Slot) -> Option<Slot> {
+    let (token, _) = slot.access()?;
+    let account = claude_profile(client, &token).await?;
+    claude_slot(slot.data["credentials"].clone(), Some(account))
+}
+
+#[cfg(test)]
+mod billing_tests {
+    use super::*;
+
+    #[test]
+    fn billing_hints_come_from_the_saved_login_without_identities() {
+        let claims = json!({ "email": "test@example.invalid", "https://api.openai.com/auth": {
+            "chatgpt_plan_type": "plus", "chatgpt_account_id": "acct",
+            "chatgpt_subscription_active_start": "2026-09-18T21:26:13+00:00",
+            "chatgpt_subscription_active_until": "2026-10-18T21:26:13+00:00",
+            "chatgpt_subscription_last_checked": "2026-10-09T16:01:36.550331+00:00",
+        } });
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string());
+        let codex = codex_slot(json!({ "tokens": { "access_token": "a", "id_token": format!("h.{payload}.s") } })).unwrap();
+        let b = codex.billing();
+        assert_eq!(b.active_until.unwrap().to_rfc3339(), "2026-10-18T21:26:13+00:00");
+        assert!(b.started_at.is_some() && b.checked_at.is_some() && b.tier.is_none());
+
+        let claude = claude_slot(json!({ "claudeAiOauth": { "accessToken": "a", "subscriptionType": "max", "rateLimitTier": "default_claude_max_5x" } }),
+            Some(json!({ "accountUuid": "u", "emailAddress": "test@example.invalid", "billingType": "stripe_subscription",
+                "subscriptionCreatedAt": "2026-08-03T09:00:00.000000Z" }))).unwrap();
+        let b = claude.billing();
+        assert_eq!((b.tier.as_deref(), b.billing_type.as_deref()), (Some("default_claude_max_5x"), Some("stripe_subscription")));
+        assert_eq!(b.started_at.unwrap().to_rfc3339(), "2026-08-03T09:00:00+00:00");
+        let text = serde_json::to_string(&b).unwrap();
+        assert!(!text.contains("example.invalid") && !text.contains("\"a\""), "{text}");
+        assert!(codex_slot(json!({ "tokens": { "access_token": "a" } })).unwrap().billing().active_until.is_none());
     }
 }
