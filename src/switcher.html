@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>SlopBar</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="switcher.css" />
+</head>
+<body class="switcher">
+  <!-- The quick switcher: type to filter, arrows to move, Enter to switch, Esc to close. -->
+  <div id="palette" role="dialog" aria-label="SlopBar" aria-describedby="switcher-hint">
+    <input id="query" type="text" spellcheck="false" autocomplete="off" data-i18n-placeholder="switcherPlaceholder"
+      role="combobox" aria-controls="results" aria-expanded="true" />
+    <ul id="results" role="listbox" aria-label="SlopBar"></ul>
+    <footer id="switcher-hint" class="dim" data-i18n="switcherHint" aria-live="polite"></footer>
+  </div>
+  <script type="module" src="switcher.js"></script>
+</body>
+</html>
