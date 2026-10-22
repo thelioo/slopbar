@@ -18,6 +18,10 @@
       <svg viewBox="0 0 20 20"><circle cx="8" cy="7" r="3"/><path d="M2.5 16.5c.6-3 2.8-4.5 5.5-4.5s4.9 1.5 5.5 4.5"/><path d="M13 4.2a3 3 0 0 1 0 5.6M15 12.4c1.3.6 2.1 1.9 2.5 4.1"/></svg>
       <span data-i18n="sAccounts"></span>
     </button>
+    <button class="nav" data-page="subscriptions">
+      <svg viewBox="0 0 20 20"><rect x="2.5" y="4.5" width="15" height="11" rx="2"/><path d="M2.5 8h15M5.5 12.5h3"/></svg>
+      <span data-i18n="sSubscriptions"></span>
+    </button>
     <button class="nav" data-page="notifications">
       <svg viewBox="0 0 20 20"><path d="M5 8a5 5 0 0 1 10 0v3.5l1.5 2.5h-13L5 11.5z"/><path d="M8 16.5a2 2 0 0 0 4 0"/></svg>
       <span data-i18n="sNotifications"></span>
@@ -41,6 +45,15 @@
       <p class="hint notice" id="add-hint" hidden data-i18n="addHint"></p>
     </section>
 
+    <!-- Subscriptions -->
+    <section class="page" id="page-subscriptions">
+      <header><h1 data-i18n="sSubscriptions"></h1><p data-i18n="descSubscriptions"></p></header>
+      <div id="subscriptions"></div>
+      <p class="hint" data-i18n="subDatesHow"></p>
+      <p class="hint" data-i18n="subHowJudged"></p>
+      <p class="hint" data-i18n="subNoCancel"></p>
+    </section>
+
     <!-- Notifications -->
     <section class="page" id="page-notifications">
       <header><h1 data-i18n="sNotifications"></h1><p data-i18n="descNotifications"></p></header>
@@ -56,6 +69,14 @@
         <div class="row">
           <div class="title"><label for="notify-switches" data-i18n="notifySwitches"></label><small data-i18n="notifySwitchesHint"></small></div>
           <input type="checkbox" class="switch" id="notify-switches" />
+        </div>
+        <div class="row">
+          <div class="title"><label for="notify-unexpected_use" data-i18n="notifyUnexpected"></label><small data-i18n="notifyUnexpectedHint"></small></div>
+          <input type="checkbox" class="switch" id="notify-unexpected_use" />
+        </div>
+        <div class="row">
+          <div class="title"><label for="notify-renewals" data-i18n="notifyRenewals"></label><small data-i18n="notifyRenewalsHint"></small></div>
+          <input type="checkbox" class="switch" id="notify-renewals" />
         </div>
       </div>
     </section>
@@ -80,6 +101,21 @@
           <input type="checkbox" class="switch" id="codex" />
         </div>
       </div>
+      <h2 data-i18n="sPresence"></h2>
+      <div class="group">
+        <div class="row">
+          <div class="title"><label for="presence" data-i18n="sharePresence"></label><small data-i18n="sharePresenceHint"></small></div>
+          <div class="select"><select id="presence"></select></div>
+        </div>
+        <div class="row" id="presence-custom" hidden>
+          <div class="presence-path">
+            <input type="text" id="presence-path" spellcheck="false" />
+            <button class="btn" id="presence-save" data-i18n="presenceSave"></button>
+          </div>
+        </div>
+      </div>
+      <p class="hint" id="presence-rclone-hint" data-i18n="presenceRcloneHint" hidden></p>
+      <p class="hint" id="presence-status" role="status" hidden></p>
     </section>
 
     <!-- General -->
@@ -110,6 +146,14 @@
           <button class="btn" id="check-updates"></button>
         </div>
       </div>
+      <h2 data-i18n="sDiagnostics"></h2>
+      <div class="group">
+        <div class="row">
+          <div class="title"><label data-i18n="sDiagnostics"></label><small data-i18n="diagnosticsHint"></small></div>
+          <button class="btn" id="export-diagnostics" data-i18n="exportDiagnostics"></button>
+        </div>
+      </div>
+      <p class="hint" id="diagnostics-status" role="status" hidden></p>
     </section>
   </main>
   </div>

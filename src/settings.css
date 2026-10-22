@@ -254,3 +254,60 @@ input[type="range"]:active::-webkit-slider-thumb { background: radial-gradient(c
 .row .title { display: flex; flex-direction: column; }
 .row .title small { color: var(--dim); font-size: 12px; line-height: 16px; }
 .row .title small.available { color: var(--accent); font-weight: 600; }
+
+.account { display: grid; grid-template-columns: 32px minmax(0, 1fr) 140px auto 20px; gap: 8px 12px; }
+.account > .avatar { grid-column: 1; grid-row: 1; }
+.account > .who { grid-column: 2; grid-row: 1; }
+.account > .meter { grid-column: 3; grid-row: 1; }
+.account > .use { grid-column: 4; grid-row: 1; }
+.account > .remove { grid-column: 5; grid-row: 1; }
+.monitor-state { grid-column: 2 / -1; grid-row: 2; display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--dim); }
+.monitor-state small { display: block; white-space: normal; }
+.window-resets { display: flex; flex-direction: column; gap: 4px; font-variant-numeric: tabular-nums; }
+.monitor-state .btn { align-self: flex-start; }
+.meter.stale { opacity: .65; }
+#diagnostics-status { overflow-wrap: anywhere; }
+
+/* Subscriptions */
+.account.sub { grid-template-columns: 32px minmax(0, 1fr) 230px auto 0; }
+.sub .name { padding: 1px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub .meter small { white-space: normal; }
+.sub .btn.use svg { width: 10px; height: 10px; }
+.chip.verdict.ok { border-color: var(--ok); color: var(--ok); background: transparent; }
+.chip.verdict.warn { border-color: var(--warn); color: var(--warn); background: transparent; }
+.chip.verdict.bad { border-color: var(--bad); color: var(--bad); background: transparent; }
+.sub .advice { color: var(--text); }
+.sub .runs-out { color: var(--warn); font-weight: 600; }
+.sub-summary { margin-left: auto; color: var(--dim); font-size: 12px; }
+.plan-fields { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; margin-top: 4px; }
+.plan-fields label { display: inline-flex; align-items: center; gap: 8px; }
+.plan-fields input[type="number"] {
+  width: 84px; height: 28px; padding: 0 8px; font: inherit; color: var(--text);
+  background: var(--control); border: 1px solid var(--control-stroke); border-bottom-color: var(--control-stroke-bottom); border-radius: 4px;
+}
+.plan-fields input[type="number"]:focus, .plan-fields input[type="date"]:focus { outline: none; border-bottom: 2px solid var(--accent); }
+.plan-fields input[type="date"] {
+  height: 28px; padding: 0 8px; font: inherit; color: var(--text); color-scheme: light dark;
+  background: var(--control); border: 1px solid var(--control-stroke); border-bottom-color: var(--control-stroke-bottom); border-radius: 4px;
+}
+.plan-fields .link { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; }
+.plan-fields .link:hover { text-decoration: underline; }
+@media (max-width: 900px) {
+  .account { grid-template-columns: 32px minmax(0, 1fr) 90px auto 20px; gap: 8px; }
+  .account .meter { width: 90px; }
+  .account.sub { grid-template-columns: 32px minmax(0, 1fr) 160px auto 0; }
+  .account.sub .meter { width: 160px; }
+}
+
+/* Sharing in-use status with the user's other computers (Data page). */
+.row[hidden] { display: none; }
+.presence-path { flex: 1; display: flex; gap: 8px; }
+.presence-path input {
+  flex: 1; min-width: 0; height: 32px; padding: 0 10px; font: inherit; color: var(--text);
+  background: var(--control); border: 1px solid var(--control-stroke); border-bottom-color: var(--control-stroke-bottom); border-radius: 4px;
+}
+.presence-path input:focus { outline: none; border-bottom: 2px solid var(--accent); }
+.chip.elsewhere { background: transparent; border-color: var(--ok); color: var(--ok); }
+.chip.outside { background: transparent; border-color: var(--warn); color: var(--warn); }
+.chip.unexpected { background: transparent; border-color: var(--bad); color: var(--bad); }
+.web-use { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; cursor: pointer; }
