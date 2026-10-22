@@ -1,8 +1,8 @@
-// Windows notifications for usage milestones, limits coming back, new usage-limit resets and
-// automatic switches. Runs in the taskbar widget, which is always alive; what was already said is
+// Windows notifications for usage milestones, limits coming back, new usage-limit resets, automatic
+// switches, and use none of the user's computers accounts for. Runs in the taskbar widget, which is always alive; what was already said is
 // remembered across restarts so nothing is repeated, and the first look at an account only
 // records where it stands.
-import { t, resetsIn, windowLabel, resetText, groupResets } from "./i18n.js";
+import { t, resetsIn, windowLabel, resetText, groupResets, duration, dayTime, shortDate, LOCALE } from "./i18n.js";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -11,14 +11,27 @@ const STORE = "slopbar-alerts";
 const PROVIDER_NAME = { claude: "Claude", codex: "Codex" };
 /** A reset time that moves by more than this means a new window, not a clock adjustment. */
 const SAME_WINDOW_MS = 10 * 60 * 1000;
+const UNEXPECTED_FRESH_MS = 60 * 60 * 1000;
 
-let state = { windows: {}, grants: {} };
+let state = { windows: {}, grants: {}, unexpected: {} };
 try { state = { ...state, ...JSON.parse(localStorage.getItem(STORE) ?? "{}") }; } catch {}
 const save = () => { try { localStorage.setItem(STORE, JSON.stringify(state)); } catch {} };
 
 const milestone = (p) => MILESTONES.filter((m) => p >= m).pop() ?? 0;
 const accountName = (a) => a.alias || a.email || t("unknownAccount");
-const notify = (title, body) => invoke("notify", { title, body }).catch(() => {});
+const notify = (title, body, page = null, phone = null) => invoke("notify", { title, body, page, phone }).catch(() => {});
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The same news for the phone, naming only the provider (see Settings > Notifications > Phone):
+ * the app sends it, or the toast's own text when the user chose to include account names, and
+ * only for the kinds they selected. Kinds: renewal, unexpected_use, runaway, limit_reached.
+ */
+export function phoneForward(kind, provider) {
+  const name = PROVIDER_NAME[provider] ?? provider;
+  const key = { renewal: "Renew", unexpected_use: "Unexpected", runaway: "Runaway", limit_reached: "Limit" }[kind];
+  return { kind, title: t(`p${key}Title`, { provider: name }), body: t(`p${key}Body`, { provider: name }) };
+}
 
 function newWindow(before, w) {
   if (!before.resets_at) return false;
@@ -44,11 +57,24 @@ export function checkUsage(snap, prefs) {
         }
       } else if (prefs.usage && now > before.milestone) {
         const usable = a.resets?.some((r) => r.usable && r.count > 0);
-        if (now >= 100) notify(t("nLimitTitle", { provider }), [details, usable ? t("nLimitHasReset") : ""].filter(Boolean).join("\n"));
+        if (now >= 100) notify(t("nLimitTitle", { provider }), [details, usable ? t("nLimitHasReset") : ""].filter(Boolean).join("\n"), null, phoneForward("limit_reached", a.provider));
         else notify(t("nUsageTitle", { provider, p: now }), details);
       }
     }
     const key = `${a.provider}:${a.id}`;
+    // The app decides when unexpected use is worth a notification (once per six hours); a new
+    // alert_at is that decision. One from long ago (SlopBar was closed) is not news any more.
+    const alertAt = a.unexpected?.alert_at;
+    if (alertAt && state.unexpected?.[key] !== alertAt) {
+      state.unexpected = { ...state.unexpected, [key]: alertAt };
+      if (prefs.unexpected_use && Date.now() - new Date(alertAt) < UNEXPECTED_FRESH_MS) {
+        invoke("notify_unexpected", {
+          provider: a.provider, title: t("nUnexpectedTitle", { provider: PROVIDER_NAME[a.provider] }),
+          body: t("nUnexpectedBody", { account: accountName(a) }), review: t("nUnexpectedReview"), security: t("nUnexpectedSecurity"),
+          phone: phoneForward("unexpected_use", a.provider),
+        }).catch(() => {});
+      }
+    }
     const total = (a.resets ?? []).reduce((n, r) => n + r.count, 0);
     const before = state.grants[key];
     state.grants[key] = total;
@@ -58,6 +84,98 @@ export function checkUsage(snap, prefs) {
     }
   }
   save();
+}
+
+const until = (iso) => duration(Math.max(1, Math.round((new Date(iso) - Date.now()) / 60000)));
+const money = (v) => `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+
+/**
+ * Plan renewals, the account in use running out of its week, and Codex Pro 200 accounts whose use
+ * would not fit the plan's smaller allowance after its cut. The app decides what is due and
+ * remembers what was shown (it honours the notification settings); this only words it. Clicking
+ * one opens Settings > Subscriptions.
+ */
+export async function checkPlans() {
+  let due;
+  try { due = await invoke("take_plan_alerts"); } catch { return; }
+  for (const a of due ?? []) {
+    const provider = PROVIDER_NAME[a.provider];
+    if (a.kind === "runs_out") {
+      notify(t("nRunsOutTitle", { provider, at: dayTime(a.at) }), t("nRunsOutBody", { account: accountName(a), t: until(a.resets_at) }), "subscriptions");
+      continue;
+    }
+    if (a.kind === "extra_usage") {
+      notify(t("nExtraTitle", { provider, p: Math.round(a.percent) }),
+        t("nExtraBody", { account: accountName(a), v: money(a.used ?? 0), limit: a.limit != null ? money(a.limit) : "—" }), "subscriptions");
+      continue;
+    }
+    if (a.kind === "pro_allowance_cut") {
+      // The last day of the old allowance, at local noon so no time zone moves it.
+      notify(t("nProCutTitle", { d: shortDate(`${a.at.slice(0, 10)}T12:00:00`) }), t("nProCutBody", { accounts: (a.accounts ?? []).join(", ") }), "subscriptions");
+      continue;
+    }
+    const body = [accountName(a), a.kind === "renewal_wasteful" && a.verdict ? t(`subVerdict_${a.verdict}`) : "",
+      a.monthly_cost != null ? t("perMonth", { v: money(a.monthly_cost) }) : ""].filter(Boolean).join(" · ");
+    // Only a renewal within a day goes to the phone.
+    const tomorrow = new Date(a.at) - Date.now() <= DAY_MS + 60 * 60 * 1000;
+    notify(t("nRenewTitle", { provider, t: until(a.at) }), a.kind === "renewal_wasteful" ? `${body}\n${t("nRenewWasteHint")}` : body, "subscriptions",
+      tomorrow ? phoneForward("renewal", a.provider) : null);
+  }
+}
+
+// The weekday of a renewal: an entered date is a calendar day (midnight UTC), the rest are moments.
+const renewDay = (r) => new Date(r.at).toLocaleDateString(LOCALE, { weekday: "short", ...(r.source === "entered" ? { timeZone: "UTC" } : {}) });
+
+/**
+ * The Monday digest: spend, possible savings, renewals this week, accounts that ran out and how
+ * many plans the usage needs. The app decides when it is due (Monday mornings, once a week, when
+ * turned on); this only words it. Clicking it opens Settings > Subscriptions.
+ */
+export async function checkDigest() {
+  let d;
+  try { d = await invoke("take_digest"); } catch { return; }
+  if (!d) return;
+  const spend = [t("nDigestSpend", { v: money(d.monthly_total) })];
+  if (d.unpriced) spend.push(t("nDigestUnpriced", { n: d.unpriced }));
+  if (d.possible_savings > 0) spend.push(t("nDigestSave", { v: money(d.possible_savings) }));
+  const lines = [spend.join(" · ")];
+  if (d.renewing.length) lines.push(t("nDigestRenewing", { list: d.renewing.map((r) => `${r.name} (${renewDay(r)})`).join(", ") }));
+  if (d.ran_out.length) lines.push(t("nDigestRanOut", { list: d.ran_out.join(", ") }));
+  for (const p of d.pools) {
+    lines.push(t("nDigestPool", { provider: PROVIDER_NAME[p.provider], n: p.plans_needed, unit: p.unit, held: Math.round(p.plans_held * 10) / 10 }));
+  }
+  notify(t("nDigestTitle"), lines.join("\n"), "subscriptions");
+}
+
+/** What to do about a Codex account at its limit with a reset credit (see reset_credits.rs). */
+export function creditAdviceText(a) {
+  if (a.choice === "switch") return t("nCreditSwitch", { to: a.switch_to ? accountName(a.switch_to) : "", p: `${Math.round(a.switch_to?.left_percent ?? 0)}%` });
+  if (a.choice === "wait") return t("nCreditWait", { t: a.resets_at ? until(a.resets_at) : "" });
+  return a.reason === "expires_soon" && a.expires_at ? t("nCreditSpendExpires", { d: dayTime(a.expires_at) }) : t("nCreditSpendNoOther");
+}
+
+/**
+ * Runaway agents (see burn.rs) and Codex reset credits: spend or switch at the limit, and credits
+ * about to expire. The app decides what is due (honouring the notification settings); this only
+ * words it.
+ */
+export async function checkCapacity() {
+  let due;
+  try { due = await invoke("take_capacity_alerts"); } catch { return; }
+  for (const b of due?.burn ?? []) {
+    const lines = [b.trigger === "weekly_rise"
+      ? t("nBurnRise", { p: Math.round(b.rise_points ?? 0), m: b.rise_minutes ?? "" })
+      : t("nBurnLocal", { x: b.this_pc?.baseline ? Math.round(b.this_pc.tokens / b.this_pc.baseline) : "" })];
+    lines.push(b.limit_at ? t("nBurnLimit", { at: dayTime(b.limit_at) }) : t("nBurnLasts"));
+    const body = [lines.join(" · ")];
+    if (b.this_pc) body.push(t("nBurnThisPc", { repo: b.this_pc.repo, model: b.this_pc.model }));
+    notify(t("nBurnTitle", { provider: PROVIDER_NAME[b.provider], account: accountName(b) }), body.join("\n"), "usage");
+  }
+  for (const c of due?.credits ?? []) {
+    const provider = PROVIDER_NAME[c.provider];
+    if (c.kind === "expiring") notify(t("nCreditExpiringTitle", { provider, d: dayTime(c.expires_at) }), t("nCreditExpiringBody", { account: accountName(c), n: c.count }));
+    else notify(t("nCreditTitle", { provider, account: accountName(c) }), creditAdviceText(c));
+  }
 }
 
 /** An automatic switch (see the balancer) is worth a notification; a manual one isn't. */
