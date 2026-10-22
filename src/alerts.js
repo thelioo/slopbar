@@ -2,7 +2,7 @@
 // automatic switches. Runs in the taskbar widget, which is always alive; what was already said is
 // remembered across restarts so nothing is repeated, and the first look at an account only
 // records where it stands.
-import { t, resetsIn, windowLabel, resetText, groupResets } from "./i18n.js";
+import { t, resetsIn, windowLabel, resetText, groupResets, duration, dayTime } from "./i18n.js";
 
 const { invoke } = window.__TAURI__.core;
 
@@ -18,7 +18,7 @@ const save = () => { try { localStorage.setItem(STORE, JSON.stringify(state)); }
 
 const milestone = (p) => MILESTONES.filter((m) => p >= m).pop() ?? 0;
 const accountName = (a) => a.alias || a.email || t("unknownAccount");
-const notify = (title, body) => invoke("notify", { title, body }).catch(() => {});
+const notify = (title, body, page = null) => invoke("notify", { title, body, page }).catch(() => {});
 
 function newWindow(before, w) {
   if (!before.resets_at) return false;
@@ -58,6 +58,29 @@ export function checkUsage(snap, prefs) {
     }
   }
   save();
+}
+
+const until = (iso) => duration(Math.max(1, Math.round((new Date(iso) - Date.now()) / 60000)));
+const money = (v) => `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+
+/**
+ * Plan renewals and the account in use running out of its week. The app decides what is due and
+ * remembers what was shown (it honours the notification settings); this only words it. Clicking
+ * one opens Settings > Subscriptions.
+ */
+export async function checkPlans() {
+  let due;
+  try { due = await invoke("take_plan_alerts"); } catch { return; }
+  for (const a of due ?? []) {
+    const provider = PROVIDER_NAME[a.provider];
+    if (a.kind === "runs_out") {
+      notify(t("nRunsOutTitle", { provider, at: dayTime(a.at) }), t("nRunsOutBody", { account: accountName(a), t: until(a.resets_at) }), "subscriptions");
+      continue;
+    }
+    const body = [accountName(a), a.kind === "renewal_wasteful" && a.verdict ? t(`subVerdict_${a.verdict}`) : "",
+      a.monthly_cost != null ? t("perMonth", { v: money(a.monthly_cost) }) : ""].filter(Boolean).join(" · ");
+    notify(t("nRenewTitle", { provider, t: until(a.at) }), a.kind === "renewal_wasteful" ? `${body}\n${t("nRenewWasteHint")}` : body, "subscriptions");
+  }
 }
 
 /** An automatic switch (see the balancer) is worth a notification; a manual one isn't. */

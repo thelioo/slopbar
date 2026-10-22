@@ -1,12 +1,36 @@
 //! Windows notifications (toasts). What to say and when is decided by the frontend, which owns
 //! the translations (see src/alerts.js); this only shows them under SlopBar's own name and icon.
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 
+/// Shows a notification. With `page` (a Settings page, e.g. "subscriptions"), clicking it opens
+/// Settings on that page.
 #[tauri::command]
-pub fn notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
+pub fn notify(app: AppHandle, title: String, body: String, page: Option<String>) -> Result<(), String> {
+    #[cfg(windows)]
+    if let Some(page) = page.filter(|p| crate::door::SETTINGS_PAGES.contains(&p.as_str())) {
+        return clickable(app, &title, &body, page);
+    }
     app.notification().builder().title(title).body(body).show().map_err(|e| e.to_string())
+}
+
+/// The notification plugin cannot react to a click on Windows, so this one is shown directly,
+/// under the same app id. The click reaches SlopBar while it runs, which it always does.
+#[cfg(windows)]
+fn clickable(app: AppHandle, title: &str, body: &str, page: String) -> Result<(), String> {
+    let id = app.config().identifier.clone();
+    let handle = app.clone();
+    tauri_winrt_notification::Toast::new(&id)
+        .title(title)
+        .text1(body)
+        .on_activated(move |_| {
+            let _ = handle.emit_to(crate::app::SETTINGS_LABEL, "show-page", &page);
+            crate::app::show_settings(&handle);
+            Ok(())
+        })
+        .show()
+        .map_err(|e| e.to_string())
 }
 
 /// Toasts are attributed to an app user model id (the plugin uses the bundle identifier). The
