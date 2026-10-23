@@ -4,7 +4,8 @@
   "windows": [
     "dock",
     "panel",
-    "settings"
+    "settings",
+    "switcher"
   ],
   "permissions": [
     "core:default",
