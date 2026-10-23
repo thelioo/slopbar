@@ -1,0 +1,45 @@
+name: Telemetry tests
+
+on:
+  pull_request:
+  push:
+    branches: [fix/independent-account-telemetry]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - name: Verify build metadata after edits and independent packaging guard
+        run: python scripts/test-build-provenance.py
+      - name: Test OAuth HTTP, isolation, lifecycle, cache, and credential storage
+        run: cargo test --locked --no-default-features --lib --manifest-path src-tauri/Cargo.toml
+
+  windows-desktop:
+    needs: core
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - name: Check official updater feature
+        run: cargo check --locked --features upstream-updates,tauri/custom-protocol --manifest-path src-tauri/Cargo.toml
+      - name: Build unsigned Windows desktop test executable (manual updates)
+        run: cargo build --locked --release --features tauri/custom-protocol --manifest-path src-tauri/Cargo.toml
+      - name: Package executable and exact source
+        run: python scripts/package-test-build.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: SlopBar-Windows-Test-Build
+          path: SlopBar-Independent-Monitoring.zip
+          if-no-files-found: error
+          retention-days: 14
