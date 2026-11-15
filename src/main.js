@@ -30,6 +30,30 @@ let subs = {};
 /** The compact layout is offered above this many accounts. */
 const COMPACT_OFFER_ABOVE = 8;
 
+// The closed flyout's webview is suspended (panel.rs), and the events sent to it meanwhile wait
+// in a queue that runs as it opens. Handled one by one, a night's usage updates were hundreds of
+// renders and app calls before the flyout answered (it opened frozen for seconds). While closed,
+// the flyout only notes what it missed, then catches up once as it opens.
+let panelOpen = false;
+let missedUsage = false;
+let missedSettings = false;
+/** True (and noted) when the flyout is closed, so an event's work waits for it to open. */
+function deferWhileClosed() {
+  if (IS_DOCK || panelOpen) return false;
+  missedUsage = true;
+  return true;
+}
+/** As the flyout opens: fresh usage and health as always, and whatever it missed while closed. */
+function catchUp() {
+  const usage = missedUsage;
+  const settings = missedSettings;
+  missedUsage = missedSettings = false;
+  if (settings && current) applySettings(current);
+  invoke("get_usage").then(render);
+  if (usage) { loadTrails(); loadSubs(); }
+  checkHealth();
+}
+
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 const color = (p) => (p >= 90 ? "var(--bad)" : p >= 70 ? "var(--warn)" : "var(--ok)");
 
@@ -56,6 +80,8 @@ let toastTimer;
 
 /** Briefly replaces the widget's content with a notice (e.g. an automatic account switch). */
 function showToast(text) {
+  // A closed flyout shows no notice: one replayed as it opens would be hours old.
+  if (deferWhileClosed()) return;
   toast = text;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { toast = null; render(lastSnap); }, 4000);
@@ -357,7 +383,10 @@ function applySettings(settings) {
   render(lastSnap);
 }
 
-listen("settings-changed", (e) => applySettings(e.payload));
+listen("settings-changed", (e) => {
+  if (deferWhileClosed()) { current = e.payload; missedSettings = true; return; }
+  applySettings(e.payload);
+});
 invoke("system_locale")
   .then(setSystemLocale, () => {})
   .finally(() => invoke("get_settings").then(applySettings));
@@ -368,13 +397,11 @@ $refresh.addEventListener("click", async () => {
 });
 
 listen("monitoring-login", ({ payload }) => showToast(payload.error ? errorText("", payload.error) : t("monitorConnected")));
-listen("usage-updated", (e) => render(e.payload));
 // The sparklines' readings: the backend records them on every refresh.
 function loadTrails() {
   if (IS_DOCK) return;
   invoke("get_sparklines").then((found) => { trails = found ?? {}; render(lastSnap); }, () => {});
 }
-listen("usage-updated", loadTrails);
 loadTrails();
 // Each account's plan, renewal and verdict (get_subscriptions), keyed `provider:id`, for the
 // compact rows' tooltips.
@@ -385,16 +412,14 @@ function loadSubs() {
     if (current?.compact_flyout) render(lastSnap);
   }, () => {});
 }
-listen("usage-updated", loadSubs);
 loadSubs();
 invoke("get_usage").then(render);
 // Times ("resets in 2 h") move on between refreshes. The widget redraws every minute; the
 // flyout only while it is open, and as it opens.
-let panelOpen = false;
 if (!IS_DOCK) {
   listen("panel-visible", ({ payload }) => {
     panelOpen = payload;
-    if (payload) { invoke("get_usage").then(render); checkHealth(); }
+    if (payload) catchUp();
   });
 }
 setInterval(() => { if (IS_DOCK || panelOpen) invoke("get_usage").then(render); }, 60_000);
@@ -414,8 +439,14 @@ async function checkHealth() {
 }
 $health.addEventListener("click", () => invoke("open_settings", { page: "health" }));
 $rosterWaiting.addEventListener("click", () => invoke("open_settings", { page: "accounts" }));
-listen("usage-updated", checkHealth);
-listen("monitoring-login", checkHealth);
+listen("usage-updated", (e) => {
+  if (deferWhileClosed()) return;
+  render(e.payload);
+  loadTrails();
+  loadSubs();
+  checkHealth();
+});
+listen("monitoring-login", () => { if (!deferWhileClosed()) checkHealth(); });
 checkHealth();
 
 // Esc closes the flyout, as it does the shell's own.
